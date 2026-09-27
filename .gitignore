@@ -5,3 +5,7 @@ local.properties
 *.iml
 .kotlin/
 .venv/
+# Built APKs are published as GitHub release assets, not committed.
+dist/
+# Raw corpus downloads (recreate with the commands in tools/build_bigrams.py).
+tools/data/*.bz2
