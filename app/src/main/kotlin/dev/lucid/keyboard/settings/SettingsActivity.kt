@@ -276,6 +276,8 @@ private fun AppearanceScreen() {
         ToggleRow("Number row", "Digits above the letters. Letters then hold symbols on long-press (hold m for ?).", s.numberRow) { v -> edit(ctx) { putBoolean(Prefs.K.NUMBER_ROW, v) } }
         ToggleRow("Symbol hints", "Show the long-press symbol in the corner of each key.", s.digitHints) { v -> edit(ctx) { putBoolean(Prefs.K.DIGIT_HINTS, v) } }
         ToggleRow("Slide to type", "Glide across the letters without lifting your finger.", s.slideToType) { v -> edit(ctx) { putBoolean(Prefs.K.SLIDE, v) } }
+        SliderRow("Hold delay", s.longPressMs.toFloat(), 200f..800f, "${s.longPressMs} ms") { v -> edit(ctx) { putInt(Prefs.K.LONG_PRESS, ((v / 10).toInt() * 10)) } }
+        Body("How long to hold a key for accents, symbols and the space-bar cursor. Shorter is faster; longer avoids accidental pop-ups.")
     }
     SectionTitle("SIZE")
     GlassCard {

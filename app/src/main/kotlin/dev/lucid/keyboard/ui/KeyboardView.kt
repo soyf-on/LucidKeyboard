@@ -52,6 +52,8 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
     }
 
     var gestureTyping = true
+    /** How long a key must be held for its alternates (user setting). */
+    var longPressMs = 380L
 
     var listener: Listener? = null
     /** Called when the view's width changes, so the owner can rebuild the layout for the real width
@@ -166,7 +168,7 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
                 if (keyPopups && isCharKey(key) && key.kind != KeyKind.SPACE) overlay?.showPreview(this, key, displayLabel(key))
                 removeCallbacks(longPressRunnable)
                 if (key.longPress.isNotEmpty() || key.kind == KeyKind.SPACE || key.kind == KeyKind.SWITCH_IME || key.kind == KeyKind.TO_SYMBOLS || key.kind == KeyKind.TO_LETTERS || key.kind == KeyKind.ENTER)
-                    postDelayed(longPressRunnable, if (key.kind == KeyKind.SPACE) 550L else 380L)
+                    postDelayed(longPressRunnable, if (key.kind == KeyKind.SPACE) longPressMs + 170L else longPressMs)
             }
             MotionEvent.ACTION_MOVE -> {
                 for (p in ptrs) {

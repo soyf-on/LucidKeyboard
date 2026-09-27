@@ -300,6 +300,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
             overlayEnabled = settings.devOverlay
             showDigitHints = settings.digitHints
             gestureTyping = settings.slideToType && logic != null
+            longPressMs = settings.longPressMs.toLong()
         }
         applyWindowBlur()
         root?.invalidate(); keyboard?.invalidate(); strip?.invalidate()
