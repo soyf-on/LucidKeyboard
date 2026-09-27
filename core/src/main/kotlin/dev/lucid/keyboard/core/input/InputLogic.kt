@@ -40,6 +40,8 @@ data class FieldInfo(
     val literal: Boolean = false,
     val password: Boolean = false,
     val suggestionsAllowed: Boolean = true,
+    /** Auto-correction allowed (off for e.g. person-name fields, where suggestions still help). */
+    val correctionAllowed: Boolean = true,
     /** False for IME_FLAG_NO_PERSONALIZED_LEARNING, incognito or sensitive fields. */
     val learningAllowed: Boolean = true,
     val autoCapAllowed: Boolean = true,
@@ -49,7 +51,7 @@ data class FieldInfo(
 ) {
     companion object {
         val DEFAULT = FieldInfo()
-        val PASSWORD = FieldInfo(literal = true, password = true, suggestionsAllowed = false, learningAllowed = false, autoCapAllowed = false, composing = false)
+        val PASSWORD = FieldInfo(literal = true, password = true, suggestionsAllowed = false, correctionAllowed = false, learningAllowed = false, autoCapAllowed = false, composing = false)
     }
 }
 
@@ -130,7 +132,7 @@ class InputLogic(
     val learningEnabled get() = !settings.privateMode && fieldInfo.learningAllowed
 
     val correctionMode: CorrectionMode
-        get() = if (fieldInfo.literal || !fieldInfo.suggestionsAllowed) CorrectionMode.OFF else settings.correction
+        get() = if (fieldInfo.literal || !fieldInfo.suggestionsAllowed || !fieldInfo.correctionAllowed) CorrectionMode.OFF else settings.correction
 
     // ---- lifecycle -------------------------------------------------------------------
 

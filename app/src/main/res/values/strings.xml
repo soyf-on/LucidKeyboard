@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Lucid Keyboard</string>
+    <string name="ime_name">Lucid</string>
+    <string name="subtype_en_us">English (US)</string>
+</resources>

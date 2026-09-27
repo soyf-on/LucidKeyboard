@@ -235,7 +235,11 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
             candidates(layout, typed, prev, maxEdits) else emptyList()
         val sugg = cands.map { lm.casedForm(it.word) }.filter { !it.equals(literal, ignoreCase = true) }.distinct().take(4)
 
-        if (mode == CorrectionMode.OFF) return result(null, sugg, 0.0, "off")
+        if (mode == CorrectionMode.OFF) {
+            // Personal replacements are still offered, just never applied automatically.
+            val rep = lm.user.replacementFor(lower)
+            return result(null, if (rep != null) listOf(rep) + sugg else sugg, 0.0, "off")
+        }
 
         // Explicit personal replacements always win (they are the user's own rule).
         lm.user.replacementFor(lower)?.let { return result(it, listOf(it) + sugg, 99.0, "personal replacement") }
