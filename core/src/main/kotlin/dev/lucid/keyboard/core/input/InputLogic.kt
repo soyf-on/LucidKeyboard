@@ -148,6 +148,7 @@ class InputLogic(
         flushPending()
         fieldInfo = info
         resetWordState()
+        primeLanguage()
         val before = editor.textBeforeCursor(64).orEmpty()
         prevWord = lastWordOf(before)
         if (before.isNotEmpty() && before.last().isLetterOrDigit()) decoder.beginUnknownContext() else decoder.beginWord()
@@ -165,6 +166,7 @@ class InputLogic(
         if (isComposing) editor.finishComposing()
         flushPending()
         resetWordState()
+        primeLanguage()
         val before = editor.textBeforeCursor(64).orEmpty()
         prevWord = lastWordOf(before)
         val after = editor.textAfterCursor(1).orEmpty()
@@ -593,6 +595,17 @@ class InputLogic(
 
     fun refreshAutoShift() = updateAutoShift()
 
+    /**
+     * Uses the words already before the cursor to estimate the language, so the first
+     * words typed in a field already get the right predictions. Read in memory only and
+     * never in password / literal fields.
+     */
+    private fun primeLanguage() {
+        if (fieldInfo.literal || fieldInfo.password || !fieldInfo.suggestionsAllowed) return
+        val before = editor.textBeforeCursor(PRIME_CHARS).orEmpty()
+        if (before.isNotBlank()) lm.observeText(before)
+    }
+
     /** Dutch capitalises the IJ digraph together: "Ijs" -> "IJs", "Ijsland" -> "IJsland". */
     private fun dutchIJ(w: String): String {
         if (w.length < 2 || w[0] != 'I' || w[1] != 'j') return w
@@ -603,6 +616,7 @@ class InputLogic(
 
     companion object {
         const val DOUBLE_SPACE_MS = 700L
+        const val PRIME_CHARS = 300
         const val SEPARATOR_PUNCT = ".,!?;:)]}\"…"
 
         fun lastWordOf(text: String): String? {

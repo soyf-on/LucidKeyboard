@@ -35,12 +35,36 @@ class LanguageModel(packs: List<LanguagePack>, val user: UserVocabulary) {
         private set
     var languageWeights = DoubleArray(packs.size) { 1.0 / packs.size }
         private set
+    /** How fast the language estimate follows the words typed (0..1 per word). */
+    var languageRate = LANGUAGE_RATE
+    /** Floor for every active language, so mixed sentences keep working. */
+    var minLanguageWeight = MIN_LANGUAGE_WEIGHT
 
     /** Replaces the active languages (e.g. from settings). Resets the language estimate. */
     fun setPacks(p: List<LanguagePack>) {
         require(p.isNotEmpty())
         packs = p
         languageWeights = DoubleArray(p.size) { 1.0 / p.size }
+    }
+
+    /** Restores a remembered estimate (e.g. the language last used in this app). */
+    fun setLanguageWeights(w: DoubleArray) {
+        if (w.size != packs.size || w.any { it.isNaN() }) return
+        val z = w.sum()
+        if (z > 0) languageWeights = DoubleArray(w.size) { w[it] / z }
+    }
+
+    /** Resets the estimate to "no idea" (all active languages equal). */
+    fun resetLanguageWeights() { languageWeights = DoubleArray(packs.size) { 1.0 / packs.size } }
+
+    /**
+     * Primes the language estimate from text already in the field (the last [maxWords]
+     * words). In-memory only: nothing is learned or stored.
+     */
+    fun observeText(text: CharSequence, maxWords: Int = 20) {
+        if (packs.size < 2) return
+        val words = WORD.findAll(text).map { it.value }.toList().takeLast(maxWords)
+        for (w in words) observeWord(w)
     }
 
     fun weightOf(code: String): Double = packs.indexOfFirst { it.code == code }.let { if (it < 0) 0.0 else languageWeights[it] }
@@ -216,8 +240,8 @@ class LanguageModel(packs: List<LanguagePack>, val user: UserVocabulary) {
         if (probs.all { it == 0.0 }) return
         val post = DoubleArray(packs.size) { languageWeights[it] * (probs[it] + 1e-7) }
         val z = post.sum()
-        val next = DoubleArray(packs.size) { (1 - LANGUAGE_RATE) * languageWeights[it] + LANGUAGE_RATE * post[it] / z }
-        for (i in next.indices) next[i] = max(next[i], MIN_LANGUAGE_WEIGHT)
+        val next = DoubleArray(packs.size) { (1 - languageRate) * languageWeights[it] + languageRate * post[it] / z }
+        for (i in next.indices) next[i] = max(next[i], minLanguageWeight)
         val z2 = next.sum()
         languageWeights = DoubleArray(next.size) { next[it] / z2 }
     }
@@ -232,5 +256,6 @@ class LanguageModel(packs: List<LanguagePack>, val user: UserVocabulary) {
         /** How fast the language estimate follows the words typed. */
         const val LANGUAGE_RATE = 0.4
         const val MIN_LANGUAGE_WEIGHT = 0.12
+        private val WORD = Regex("[\\p{L}]+(?:['’][\\p{L}]+)*")
     }
 }

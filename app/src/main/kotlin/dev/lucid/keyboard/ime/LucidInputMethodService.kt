@@ -217,6 +217,16 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         EmojiData(groups, kw).also { emojiCache = it }
     }
 
+    /** Language estimate per app for this session only (never written to disk; not in private mode). */
+    private val languageByApp = HashMap<String, DoubleArray>()
+
+    private fun rememberLanguage() {
+        val pkg = clientPackage ?: return
+        val lm = app.engine(0)?.lm ?: return
+        if (settings.privateMode || editor.editorInfo?.let { EditorBridge.fieldFor(it).literal } == true) return
+        languageByApp[pkg] = lm.languageWeights.copyOf()
+    }
+
     /** Package of the app being typed into (for the per-app background choice). */
     private var clientPackage: String? = null
     private val appColorCache = HashMap<String, Int?>()
@@ -334,6 +344,12 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         }
         strip?.showSwitch = shouldOfferSwitchingToNextInputMethod()
         val field = EditorBridge.fieldFor(info)
+        // Language: start from what was last written in this app (this session, memory only),
+        // then startInput() refines it from any text already in the field.
+        app.engine(0)?.lm?.let { lm ->
+            lm.resetLanguageWeights()
+            info.packageName?.let { languageByApp[it] }?.let { lm.setLanguageWeights(it) }
+        }
         logic?.startInput(field)
         applyAppearance()
         showMode(when {
@@ -348,6 +364,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     override fun onFinishInputView(finishingInput: Boolean) {
         logic?.finishInput()
+        rememberLanguage()
         keyboard?.cancelAll()
         app.storage.flush()
         super.onFinishInputView(finishingInput)

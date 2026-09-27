@@ -85,4 +85,23 @@ class MultilingualTest {
         val (prior, _) = d.nextPrior()
         assertTrue(prior['l' - 'a'] > 0.5)
     }
+
+    @Test fun `existing text in the field sets the language before typing`() {
+        val e = Fixtures.engine(langs = both)
+        e.editor.commit("Hoi! Ik ben morgen niet thuis want ik moet werken. ")
+        e.logic.settings = TypingSettings(correction = CorrectionMode.BALANCED)
+        e.logic.startInput(FieldInfo.DEFAULT)
+        assertTrue("nl=${e.lm.weightOf("nl")}", e.lm.weightOf("nl") > 0.75)
+        val en = Fixtures.engine(langs = both)
+        en.editor.commit("Hey! I will not be home tomorrow because I have to work. ")
+        en.logic.startInput(FieldInfo.DEFAULT)
+        assertTrue("en=${en.lm.weightOf("en")}", en.lm.weightOf("en") > 0.75)
+    }
+
+    @Test fun `password fields are never read for language`() {
+        val e = Fixtures.engine(langs = both)
+        e.editor.commit("ik ben niet thuis want ik moet werken ")
+        e.logic.startInput(FieldInfo.PASSWORD)
+        assertEquals(0.5, e.lm.weightOf("nl"), 1e-9)
+    }
 }
