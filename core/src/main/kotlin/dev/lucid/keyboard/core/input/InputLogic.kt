@@ -130,7 +130,16 @@ class InputLogic(
     /** Called with each learning event; the IME persists the model/vocabulary. */
     var onLearned: (() -> Unit)? = null
 
-    private data class LastCorrection(val original: String, val corrected: String, val separator: String, val typed: List<TypedChar>, val layout: KeyboardLayout?, val prev: String?)
+    private data class LastCorrection(
+        val original: String, val corrected: String, val separator: String, val typed: List<TypedChar>, val layout: KeyboardLayout?, val prev: String?,
+        /** A "word.word" -> "word word" fix: undo restores the punctuation, learns nothing. */
+        val split: Boolean = false,
+    )
+
+    /** A "." or "," that was just tapped straight after a word (candidate for a missed space). */
+    private var joinPunct: String? = null
+    /** The current word was started directly after [joinPunct] ("hello.w|"). */
+    private var wordJoinedBy: String? = null
 
     /** The word before the cursor (context for predictions and gestures). */
     val previousWord: String? get() = prevWord
@@ -176,7 +185,7 @@ class InputLogic(
     }
 
     private fun resetWordState() {
-        word.clear(); wordLayout = null; gestureWord = false
+        word.clear(); wordLayout = null; gestureWord = false; joinPunct = null; wordJoinedBy = null
         lastCorrection = null; revertedWord = null; phantomSpace = false; lastSeparatorWasSpace = false
         decoder.beginWord()
     }
@@ -248,7 +257,11 @@ class InputLogic(
             editor.commit(t.char.toString())
             return
         }
-        if (word.isEmpty()) wordLayout = lay
+        if (word.isEmpty()) {
+            wordLayout = lay
+            wordJoinedBy = joinPunct?.takeIf { editor.textBeforeCursor(1) == it && t.char.isLetter() }
+            joinPunct = null
+        }
         word += t
         editor.setComposing(composingText)
     }
@@ -325,7 +338,9 @@ class InputLogic(
             }
             if (isComposing) {
                 commitWord(correct = true, separator = sep)
+                joinPunct = if (sep == "." || sep == ",") sep else null
             } else {
+                joinPunct = null
                 // "word" + auto space from a suggestion, then "." -> "word. " instead of "word ."
                 if (sep != " " && phantomSpace && editor.textBeforeCursor(1) == " ") {
                     editor.deleteBefore(1)
@@ -351,8 +366,24 @@ class InputLogic(
         gestureWord = false
         val res = corrector.correct(wordLayout, word, prevWord, mode, sentenceStart, suggestionsWanted = false)
         val final = dutchIJ(res.autoCorrection ?: literal)
+        val joined = wordJoinedBy
+        wordJoinedBy = null
         editor.commit(final + separator)
         lm.observeWord(final)
+        if (joined != null && mode != CorrectionMode.OFF && missedSpace(joined, final, separator)) {
+            // "hello.world" -> "hello world": the "." / "," was meant to be the space bar.
+            // A capital after "." means a new sentence with a missed space: keep the period.
+            val gap = if (joined == "." && final.first().isUpperCase()) ". " else " "
+            editor.deleteBefore(final.length + separator.length + 1)
+            editor.commit("$gap$final$separator")
+            flushPending()
+            lastCorrection = LastCorrection(joined + literal, "$gap$final", separator, word.toList(), wordLayout, prevWord, split = true)
+            revertedWord = null
+            pending = PendingWord(final, literal, word.toList(), wordLayout, prevWord, final != literal, overrodeCorrection = false)
+            prevWord = final
+            word.clear(); wordLayout = null
+            return
+        }
         flushPending()
         val corrected = final != literal
         lastCorrection = if (corrected) LastCorrection(literal, final, separator, word.toList(), wordLayout, prevWord) else null
@@ -363,6 +394,7 @@ class InputLogic(
     }
 
     fun onBackspace() {
+        joinPunct = null
         editor.beginBatch()
         try { backspace() } finally { editor.endBatch() }
     }
@@ -398,6 +430,13 @@ class InputLogic(
             editor.deleteBefore(lc.corrected.length + lc.separator.length)
             editor.commit(lc.original + lc.separator)
             lastCorrection = null
+            if (lc.split) {
+                // Undo of a missed-space fix: back to exactly what was typed; nothing to learn.
+                revertedWord = null
+                pending = null
+                prevWord = lastWordOf(editor.textBeforeCursor(64).orEmpty())
+                return
+            }
             revertedWord = lc.original
             if (learningEnabled) lm.user.rejectCorrection(lc.original, lc.corrected)
             // The kept literal is a strong signal the word is intended; touch labels are unknown now.
@@ -606,6 +645,26 @@ class InputLogic(
         if (before.isNotBlank()) lm.observeText(before)
     }
 
+    /**
+     * Whether "left<punct>right" (no space) is really two words with a mis-hit space bar.
+     * Not for links, file names, numbers or abbreviations.
+     */
+    private fun missedSpace(punct: String, right: String, separator: String): Boolean {
+        val before = editor.textBeforeCursor(right.length + separator.length + 1 + 48).orEmpty()
+        val head = before.dropLast(right.length + separator.length)
+        if (!head.endsWith(punct)) return false
+        val beforePunct = head.dropLast(1)
+        val left = beforePunct.takeLastWhile { it.isLetter() || it == '\'' }
+        val preceding = beforePunct.dropLast(left.length).lastOrNull()
+        if (left.length < 2 || right.length < 2 || !right.all { it.isLetter() || it == '\'' }) return false
+        // Part of a longer token (www.site.com, a/b.c, name@mail.com, 3.5x) -> leave it.
+        if (preceding != null && (preceding.isLetterOrDigit() || preceding in "./@:_-#")) return false
+        val l = left.lowercase(); val r = right.lowercase()
+        if (punct == "." && (r in TLDS || l in ABBREVIATIONS || l in URL_PREFIXES)) return false
+        if (lm.isKnown("$l$punct$r")) return false
+        return lm.isKnown(l) && lm.isKnown(r)
+    }
+
     /** Dutch capitalises the IJ digraph together: "Ijs" -> "IJs", "Ijsland" -> "IJsland". */
     private fun dutchIJ(w: String): String {
         if (w.length < 2 || w[0] != 'I' || w[1] != 'j') return w
@@ -617,6 +676,13 @@ class InputLogic(
     companion object {
         const val DOUBLE_SPACE_MS = 700L
         const val PRIME_CHARS = 300
+        /** Domain endings and file extensions: "google.com", "report.pdf" are never split. */
+        val TLDS = setOf("com", "net", "org", "nl", "be", "de", "eu", "uk", "io", "co", "app", "dev", "ai", "me", "tv", "info", "edu", "gov",
+            "fr", "es", "it", "us", "ca", "au", "ch", "at", "online", "shop", "site", "html", "htm", "php", "pdf", "doc", "docx", "xls", "xlsx",
+            "ppt", "pptx", "txt", "jpg", "jpeg", "png", "gif", "webp", "mp3", "mp4", "mov", "zip", "rar", "apk", "exe", "js", "ts", "kt", "py", "json", "csv")
+        /** Abbreviations whose period is intentional ("Mr.Smith" is left alone). */
+        val ABBREVIATIONS = setOf("mr", "mrs", "ms", "dr", "st", "vs", "etc", "eg", "ie", "jr", "sr", "prof", "no", "nr", "blz", "bijv", "dhr", "mevr", "mw", "ca", "evt", "incl", "excl", "resp")
+        val URL_PREFIXES = setOf("www", "http", "https", "ftp", "mail", "m")
         const val SEPARATOR_PUNCT = ".,!?;:)]}\"…"
 
         fun lastWordOf(text: String): String? {

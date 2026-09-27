@@ -65,6 +65,7 @@ class QuickPanel(context: Context, renderer: GlassRenderer, private val actions:
         fun toggleLanguage(code: String)
         /** Background for the current app: AUTO, CLEAR or TINTED. */
         fun setBackdrop(mode: String)
+        fun startResize()
         fun openSettings(page: String)
         fun closePanel()
     }
@@ -97,6 +98,7 @@ class QuickPanel(context: Context, renderer: GlassRenderer, private val actions:
         addView(row(listOf(autoCap, privateMode)))
         addView(row(langButtons.values.toList() + backdropButtons.values.toList()))
         addView(row(listOf(
+            GlassButton(context, renderer, "Resize") { actions.startResize() },
             GlassButton(context, renderer, "Dictionary") { actions.openSettings("dictionary") },
             GlassButton(context, renderer, "Settings") { actions.openSettings("home") },
             GlassButton(context, renderer, "Done") { actions.closePanel() },

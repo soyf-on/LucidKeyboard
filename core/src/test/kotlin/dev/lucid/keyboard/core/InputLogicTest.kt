@@ -290,6 +290,45 @@ class InputLogicTest {
         assertEquals("Thank you ", e.editor.text)
     }
 
+    @Test fun `a period or comma instead of space between two words becomes a space`() {
+        val e = engine()
+        e.typeCentered("hello"); e.logic.onText("."); e.typeCentered("world ")
+        assertEquals("Hello world ", e.editor.text)
+        e.typeCentered("see"); e.logic.onText(","); e.typeCentered("you ")
+        assertEquals("Hello world see you ", e.editor.text)
+        e.typeCentered("done"); e.logic.onText("."); e.typeCentered("Next ")
+        assertEquals("Hello world see you done. Next ", e.editor.text)
+    }
+
+    @Test fun `links, files, numbers and abbreviations are not split`() {
+        for ((a, p, b) in listOf(Triple("google", ".", "com"), Triple("report", ".", "pdf"), Triple("mr", ".", "smith"), Triple("www", ".", "lucid"))) {
+            val e = engine()
+            e.typeCentered(a); e.logic.onText(p); e.typeCentered("$b ")
+            assertTrue(e.editor.text, e.editor.text.lowercase().startsWith("$a$p$b"))
+        }
+        val n = engine()
+        n.typeCentered("pi is "); n.logic.onText("3"); n.logic.onText("."); n.logic.onText("1"); n.logic.onText("4"); n.logic.onSeparator(" ")
+        assertEquals("Pi is 3.14 ", n.editor.text)
+    }
+
+    @Test fun `backspace undoes a missed-space fix`() {
+        val e = engine()
+        e.typeCentered("hello"); e.logic.onText("."); e.typeCentered("world ")
+        assertEquals("Hello world ", e.editor.text)
+        e.logic.onBackspace()
+        assertEquals("Hello.world ", e.editor.text)
+    }
+
+    @Test fun `no missed-space fix when autocorrect is off or in literal fields`() {
+        val off = engine(settings = TypingSettings(correction = CorrectionMode.OFF))
+        off.typeCentered("hello"); off.logic.onText("."); off.typeCentered("world ")
+        assertEquals("Hello.world ", off.editor.text)
+        val url = Fixtures.engine()
+        url.logic.startInput(FieldInfo(literal = true, autoCapAllowed = false))
+        url.typeCentered("hello"); url.logic.onText("."); url.typeCentered("world")
+        assertEquals("hello.world", url.editor.text)
+    }
+
     @Test fun `bar punctuation attaches to the previous word`() {
         val e = engine()
         e.typeCentered("hello ")

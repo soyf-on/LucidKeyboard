@@ -30,6 +30,10 @@ data class Settings(
     val transparency: Float = 0.7f,
     val systemBlur: Boolean = true,
     val heightScale: Float = 1.0f,
+    /** Keyboard width as a fraction of the screen (one-handed when < 1). */
+    val widthScale: Float = 1.0f,
+    /** Where a narrower keyboard sits: 0 = left, 0.5 = centre, 1 = right. */
+    val keyboardOffset: Float = 0.5f,
     val spacingScale: Float = 1.0f,
     val reduceMotion: Boolean = false,
     val reduceTransparency: Boolean = false,
@@ -77,6 +81,8 @@ class Prefs(context: Context) {
         transparency = sp.getFloat(K.TRANSPARENCY, 0.7f),
         systemBlur = sp.getBoolean(K.BLUR, true),
         heightScale = sp.getFloat(K.HEIGHT, 1.0f),
+        widthScale = sp.getFloat(K.WIDTH, 1.0f),
+        keyboardOffset = sp.getFloat(K.OFFSET, 0.5f),
         spacingScale = sp.getFloat(K.SPACING, 1.0f),
         reduceMotion = sp.getBoolean(K.REDUCE_MOTION, false),
         reduceTransparency = sp.getBoolean(K.REDUCE_TRANSPARENCY, false),
@@ -104,7 +110,7 @@ class Prefs(context: Context) {
         const val CONTRAST = "contrast"; const val SIMPLE = "simple_rendering"; const val POPUPS = "key_popups"
         const val HAPTICS = "haptics"; const val SOUND = "sound"; const val WALLPAPER_TINT = "wallpaper_tint"
         const val RECENT_EMOJI = "recent_emoji"; const val CALIBRATED = "calibrated"
-        const val DIGIT_HINTS = "digit_hints"; const val LANGUAGES = "languages"; const val NUMBER_ROW = "number_row"; const val SLIDE = "slide_to_type"
+        const val DIGIT_HINTS = "digit_hints"; const val LANGUAGES = "languages"; const val NUMBER_ROW = "number_row"; const val WIDTH = "width_scale"; const val OFFSET = "keyboard_offset"; const val SLIDE = "slide_to_type"
         /** Per-app keyboard background: "backdrop_<package>" = AUTO | CLEAR | TINTED. */
         fun backdrop(pkg: String) = "backdrop_$pkg"
     }

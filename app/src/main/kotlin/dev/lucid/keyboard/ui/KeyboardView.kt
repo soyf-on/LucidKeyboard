@@ -346,12 +346,12 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         labelPaint.color = color
         labelPaint.typeface = if (k.kind == KeyKind.LETTER || (k.kind == KeyKind.CHAR && text.length == 1)) Typeface.DEFAULT else Typeface.create("sans-serif-medium", Typeface.NORMAL)
         val maxSize = when {
-            k.kind == KeyKind.LETTER -> min(25 * density, k.h * 0.52f)
+            k.kind == KeyKind.LETTER -> letterSize(k)
             k.kind == KeyKind.CHAR && text.length == 1 -> min(23 * density, k.h * 0.48f)
             else -> min(16 * density, k.h * 0.36f)
         }
         // Auto-fit: every label keeps a clear margin from the key edge.
-        labelPaint.textSize = fitTextSize(labelPaint, text, k.w - 14 * density, maxSize)
+        labelPaint.textSize = if (k.kind == KeyKind.LETTER) maxSize else fitTextSize(labelPaint, text, k.w - 14 * density, maxSize)
         val fm = labelPaint.fontMetrics
         c.drawText(text, cx, cy - (fm.ascent + fm.descent) / 2, labelPaint)
         if (showDigitHints && k.kind == KeyKind.LETTER && k.longPress.isNotEmpty()) {
@@ -361,6 +361,23 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
             val fm = hintPaint.fontMetrics
             c.drawText(k.longPress[0], k.x + k.w - 9 * density, k.y + 6 * density - fm.ascent, hintPaint)
         }
+    }
+
+    /**
+     * One size for every letter on the layout, fitted to the widest letter, so a narrow
+     * (resized) keyboard shrinks all letters evenly instead of each one differently.
+     */
+    private var letterSizeFor: KeyboardLayout? = null
+    private var letterSizeCache = 0f
+    private fun letterSize(k: Key): Float {
+        val lay = layout
+        if (lay !== letterSizeFor) {
+            letterSizeFor = lay
+            labelPaint.typeface = Typeface.DEFAULT
+            val maxPx = min(25 * density, k.h * 0.52f)
+            letterSizeCache = fitTextSize(labelPaint, "W", k.w - 8 * density, maxPx, minPx = 9 * density)
+        }
+        return letterSizeCache
     }
 
     /** Return / action glyphs, drawn as strokes so they scale cleanly with the key. */

@@ -38,6 +38,8 @@ To switch back to another keyboard, use the globe key (long-press it for the sys
 | Accents / symbols | Long-press a letter (hold m for ?) |
 | Comma / period extras | Hold `,` for emoji and quotes; hold `.` for ? ! … : ; |
 | Paste something copied | Tap the clipboard icon in the bar, or the “just copied” chip |
+| Resize / one-handed | Sliders button ▸ Resize, then drag the top or side edges; drag the middle to move |
+| Hit `.` or `,` instead of space | “hello.world” becomes “hello world” when you finish the word (not in links, files, numbers or abbreviations); backspace undoes it |
 | Caps lock | Double-tap shift |
 | Period | Double-tap space |
 

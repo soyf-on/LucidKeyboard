@@ -279,7 +279,12 @@ private fun AppearanceScreen() {
     }
     SectionTitle("SIZE")
     GlassCard {
-        SliderRow("Keyboard height", s.heightScale, 0.8f..1.25f, "${(s.heightScale * 100).toInt()}%") { v -> edit(ctx) { putFloat(Prefs.K.HEIGHT, (v * 20).toInt() / 20f) } }
+        SliderRow("Keyboard height", s.heightScale, 0.7f..1.4f, "${(s.heightScale * 100).toInt()}%") { v -> edit(ctx) { putFloat(Prefs.K.HEIGHT, (v * 20).toInt() / 20f) } }
+        SliderRow("Keyboard width", s.widthScale, 0.6f..1f, "${(s.widthScale * 100).toInt()}%") { v -> edit(ctx) { putFloat(Prefs.K.WIDTH, if (v > 0.97f) 1f else (v * 50).toInt() / 50f) } }
+        if (s.widthScale < 1f) Choice(listOf("Left", "Centre", "Right"), when { s.keyboardOffset < 0.25f -> 0; s.keyboardOffset > 0.75f -> 2; else -> 1 }) { i ->
+            edit(ctx) { putFloat(Prefs.K.OFFSET, listOf(0f, 0.5f, 1f)[i]) }
+        }
+        Body("Tip: resize directly on the keyboard — sliders button ▸ Resize, then drag the edges.")
         SliderRow("Key spacing", s.spacingScale, 0.5f..1.6f, "${(s.spacingScale * 100).toInt()}%") { v -> edit(ctx) { putFloat(Prefs.K.SPACING, (v * 10).toInt() / 10f) } }
     }
     SectionTitle("FEEDBACK")

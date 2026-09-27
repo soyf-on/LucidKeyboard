@@ -15,7 +15,7 @@ import android.os.PersistableBundle
  */
 class ClipboardHistory(private val max: Int = 20) {
     private val items = ArrayDeque<String>()
-    /** When the newest item was copied (SystemClock.elapsedRealtime ms), to offer it briefly in the suggestion bar. */
+    /** When the newest item was copied (wall-clock ms, the time base of ClipDescription.getTimestamp), to offer it briefly in the suggestion bar. */
     var newestAt = 0L; private set
 
     fun items(): List<String> = items.toList()

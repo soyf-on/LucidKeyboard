@@ -143,4 +143,17 @@ class TouchDecoderTest {
                 x += 8f }
             y += 8f }
     }
+
+    @Test fun `narrow one-handed keyboard keeps the guarantees`() {
+        val p = Fixtures.params.copy(width = 900f, offsetX = 300f)
+        val lay = dev.lucid.keyboard.core.geometry.Layouts.qwerty(p)
+        assertTrue(lay.keys.all { it.x >= 300f && it.x + it.w <= 1200f })
+        val d = TouchDecoder(Fixtures.lm(), dev.lucid.keyboard.core.touch.SpatialModel())
+        d.settings = DecoderSettings(strength = 1.0)
+        d.beginWord()
+        for (c in "keyboar") { val k = lay.letter(c)!!; d.commitTap(lay, k.cx, k.cy, k) }
+        for (k in lay.decodableKeys) assertEquals(k, d.decide(lay, k.cx, k.cy).key)
+        val dKey = lay.letter('d')!!; val sKey = lay.letter('s')!!
+        assertEquals('d', d.decide(lay, dKey.cx + (sKey.cx - dKey.cx) * 0.56f, dKey.cy).key.char)
+    }
 }

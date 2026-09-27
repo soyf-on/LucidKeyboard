@@ -79,7 +79,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     private val clips = dev.lucid.keyboard.data.ClipboardHistory()
     private val clipboard by lazy { getSystemService(android.content.ClipboardManager::class.java) }
     private val clipListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
-        clips.capture(clipboard, settings.privateMode, SystemClock.elapsedRealtime())
+        clips.capture(clipboard, settings.privateMode, System.currentTimeMillis())
         scheduleStrip()
     }
     private var mode = Mode.LETTERS
@@ -361,7 +361,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         }
         strip?.showSwitch = shouldOfferSwitchingToNextInputMethod()
         // Pick up anything copied while the keyboard wasn't running (freshness uses the copy time).
-        clipboard?.let { clips.capture(it, settings.privateMode, SystemClock.elapsedRealtime()) }
+        clipboard?.let { clips.capture(it, settings.privateMode, System.currentTimeMillis()) }
         val field = EditorBridge.fieldFor(info)
         // Language: start from what was last written in this app (this session, memory only),
         // then startInput() refines it from any text already in the field.
@@ -536,7 +536,8 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     private fun updateStrip() {
         val l = logic ?: return
-        val fresh = SystemClock.elapsedRealtime() - clips.newestAt < dev.lucid.keyboard.data.ClipboardHistory.FRESH_MS
+        val age = System.currentTimeMillis() - clips.newestAt
+        val fresh = clips.newestAt > 0 && age in 0 until dev.lucid.keyboard.data.ClipboardHistory.FRESH_MS
         strip?.freshClip = if (fresh && !settings.privateMode) clips.items().firstOrNull() else null
         val t0 = SystemClock.elapsedRealtimeNanos()
         strip?.setState(l.stripState())
@@ -584,7 +585,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun onHideKeyboard() { requestHideSelf(0) }
     override fun onEmojiShortcut() = showMode(Mode.EMOJI)
     override fun onClipboard() {
-        clipboard?.let { clips.capture(it, settings.privateMode, SystemClock.elapsedRealtime()) }
+        clipboard?.let { clips.capture(it, settings.privateMode, System.currentTimeMillis()) }
         showMode(if (mode == Mode.CLIPBOARD) Mode.LETTERS else Mode.CLIPBOARD)
     }
     override fun onPasteClip(text: String) { paste(text) }
@@ -622,6 +623,38 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun toggleSuggestions() = app.prefs.edit { putBoolean(Prefs.K.SUGGESTIONS, !settings.suggestions) }
     override fun toggleAutoCap() = app.prefs.edit { putBoolean(Prefs.K.AUTOCAP, !settings.autoCap) }
     override fun togglePrivate() = app.prefs.edit { putBoolean(Prefs.K.PRIVATE, !settings.privateMode) }
+    // ---- resize mode ----
+    private var resizing: dev.lucid.keyboard.ui.ResizeOverlay? = null
+
+    override fun startResize() {
+        closePanel()
+        val c = content ?: return
+        val overlay = dev.lucid.keyboard.ui.ResizeOverlay(this, renderer,
+            dev.lucid.keyboard.ui.KeyboardSize(settings.heightScale, settings.widthScale, settings.keyboardOffset),
+            onChange = { sz -> applySizeLive(sz) },
+            onDone = { sz -> finishResize(sz) })
+        resizing = overlay
+        c.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        animateIn(overlay)
+    }
+
+    /** Rebuilds the keys at the new size while dragging (not saved until Done). */
+    private fun applySizeLive(sz: dev.lucid.keyboard.ui.KeyboardSize) {
+        settings = settings.copy(heightScale = sz.height, widthScale = sz.width, keyboardOffset = sz.offset)
+        val kv = keyboard ?: return
+        kv.layout = buildLayout()
+        kv.layoutParams = kv.layoutParams.apply { height = keyboardHeight() }
+        kv.requestLayout()
+    }
+
+    private fun finishResize(sz: dev.lucid.keyboard.ui.KeyboardSize) {
+        resizing?.let { content?.removeView(it) }
+        resizing = null
+        app.prefs.edit {
+            putFloat(Prefs.K.HEIGHT, sz.height); putFloat(Prefs.K.WIDTH, sz.width); putFloat(Prefs.K.OFFSET, sz.offset)
+        }
+    }
+
     override fun setBackdrop(mode: String) {
         val pkg = clientPackage ?: return
         app.prefs.edit { putString(Prefs.K.backdrop(pkg), mode) }
@@ -675,7 +708,8 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         strip?.privateMode = settings.privateMode
         applyLanguages()
         applyAppearance()
-        if (old.heightScale != settings.heightScale || old.spacingScale != settings.spacingScale || old.numberRow != settings.numberRow) {
+        if (old.heightScale != settings.heightScale || old.spacingScale != settings.spacingScale || old.numberRow != settings.numberRow ||
+            old.widthScale != settings.widthScale || old.keyboardOffset != settings.keyboardOffset) {
             if (!quickOpen && mode != Mode.EMOJI) showMode(mode)
         }
         if (quickOpen) bindQuick()

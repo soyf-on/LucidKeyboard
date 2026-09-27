@@ -5,8 +5,13 @@ import dev.lucid.keyboard.data.Settings
 
 /** Key geometry in pixels, shared by the keyboard service and the practice screen. */
 object Dimensions {
-    fun params(width: Float, density: Float, landscape: Boolean, s: Settings, extraKey: String? = null) = LayoutParams(
+    fun params(viewWidth: Float, density: Float, landscape: Boolean, s: Settings, extraKey: String? = null): LayoutParams {
+        // A narrower keyboard (resize / one-handed) keeps full-size keys proportions at its own width.
+        val width = viewWidth * s.widthScale.coerceIn(0.6f, 1f)
+        val offset = (viewWidth - width) * s.keyboardOffset.coerceIn(0f, 1f)
+        return LayoutParams(
         width = width,
+        offsetX = offset,
         rowHeight = (if (landscape) 38f else 50f) * density * s.heightScale,
         hGap = 6f * density * s.spacingScale,
         vGap = (if (landscape) 7f else 11f) * density * s.spacingScale,
@@ -14,4 +19,5 @@ object Dimensions {
         extraKey = extraKey,
         numberRow = s.numberRow,
     )
+    }
 }

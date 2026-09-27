@@ -78,6 +78,8 @@ data class LayoutParams(
     val bottomPadding: Float,
     /** A row of digits above the letters (letters then hold symbols on long-press). */
     val numberRow: Boolean = false,
+    /** Horizontal position of the keys inside the view (for a narrower, one-handed keyboard). [width] is the keys' width. */
+    val offsetX: Float = 0f,
     /** Extra key beside space for URL ("/") or e-mail ("@") fields; null for normal text. */
     val extraKey: String? = null,
 )
@@ -256,10 +258,14 @@ object Layouts {
     fun totalHeight(p: LayoutParams) =
         p.topPadding + 4 * (p.rowHeight + p.vGap) + (if (p.numberRow) p.rowHeight * NUMBER_ROW_SCALE + p.vGap else 0f) + p.bottomPadding
 
-    private fun finish(name: String, keys: List<Key>, p: LayoutParams, unit: Float, keyW: Float): KeyboardLayout {
+    private fun finish(name: String, keys0: List<Key>, p: LayoutParams, unit: Float, keyW: Float): KeyboardLayout {
         val height = totalHeight(p)
+        // A narrower keyboard is built at its own width, then shifted to its position.
+        val keys = if (p.offsetX == 0f) keys0
+        else keys0.map { Key(it.kind, it.output, it.label, it.x + p.offsetX, it.y, it.w, it.h, it.row, it.longPress) }
+        val left = p.offsetX; val right = p.offsetX + p.width
         // Grow each cap into its share of the gaps: split halfway to neighbours in
-        // the same row and to the row boundaries. Edge keys extend to the view edge.
+        // the same row and to the row boundaries. Edge keys extend to the keyboard edge.
         val rows = keys.groupBy { it.row }
         val maxRow = rows.keys.max()
         for ((r, rowKeys) in rows) {
@@ -269,11 +275,11 @@ object Layouts {
             sorted.forEachIndexed { i, k ->
                 k.hitTop = top
                 k.hitBottom = bottom
-                k.hitLeft = if (i == 0) 0f else (sorted[i - 1].x + sorted[i - 1].w + k.x) / 2f
-                k.hitRight = if (i == sorted.lastIndex) p.width else (k.x + k.w + sorted[i + 1].x) / 2f
+                k.hitLeft = if (i == 0) left else (sorted[i - 1].x + sorted[i - 1].w + k.x) / 2f
+                k.hitRight = if (i == sorted.lastIndex) right else (k.x + k.w + sorted[i + 1].x) / 2f
             }
         }
-        return KeyboardLayout(name, keys, p.width, height, unit, p.rowHeight + p.vGap)
+        return KeyboardLayout(name, keys, right, height, unit, p.rowHeight + p.vGap)
     }
 }
 
