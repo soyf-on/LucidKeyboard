@@ -1,6 +1,6 @@
 # Lucid Keyboard
 
-An Android keyboard (English, US QWERTY) built around **adaptive touch targets**: the
+An Android keyboard (QWERTY, English + Dutch typed together) built around **adaptive touch targets**: the
 keys you see never move, but the invisible area that decides which key you meant
 adapts to what you're likely to type and to how *you* tap — within hard limits that
 keep every key typeable. Autocorrect is conservative, undoable, and separately
@@ -12,7 +12,7 @@ switchable. The look is an interpretation of Apple's Liquid Glass.
 
 ## Install on the Xiaomi 17 Pro Max (HyperOS 3 / Android 16)
 
-1. Copy `dist/LucidKeyboard-0.1.0-debug.apk` to the phone and open it (or `adb install dist/LucidKeyboard-0.1.0-debug.apk`).
+1. Download the APK from the latest [release](../../releases) on the phone and open it (or build it yourself, below, and `adb install` it).
    HyperOS will ask you to allow installs from that source, and may offer a security scan — both are normal for apps outside the store.
 2. Open **Lucid Keyboard** from the app drawer. The setup card has two buttons:
    * **Enable** → turn on *Lucid* in the system keyboard list
@@ -72,49 +72,50 @@ python tools/build_lexicon.py /path/to/unmunched-scowl.txt   # see header of the
 
 ## What was tested, and how
 
-* **50 JVM unit tests** (`./gradlew :core:test`): decoder guarantees (anchor and reach
-  limits swept over the whole keyboard), fallbacks, autocorrect modes and gates, undo /
-  rejected-correction memory across restarts, immediate learning, inferred learning
-  thresholds, typo-flood protection, private mode, no-learning fields, password / URL
-  fields, cursor moves, backspace-into-word, double-space, emoji deletion, caps lock,
-  export/import/reset.
+* **On a real Xiaomi 17 Pro Max (HyperOS 3.0, Android 16)**: used as the everyday
+  keyboard by the owner, and checked over `adb` — installs and runs as the selected
+  keyboard, starts without errors after updates, and HyperOS's compositor blur is active
+  on the keyboard's window (confirmed via SurfaceFlinger), so the real background blur works
+  on this device.
+* **69 JVM unit tests** (`./gradlew :core:test`): decoder guarantees (anchor and reach
+  limits swept over the whole keyboard, with and without the number row), fallbacks,
+  autocorrect modes and gates, undo / rejected-correction memory across restarts, immediate
+  learning, inferred learning thresholds, typo-flood protection, private mode, no-learning
+  fields, password / URL fields, cursor moves, backspace-into-word, double-space, emoji
+  deletion, caps lock, export/import/reset, English + Dutch typed together (no false
+  corrections, accent restoration, IJ capitalisation), next-word prediction and context
+  ("this rnew" → "new"), and slide-to-type decoding.
 * **Evaluation** on identical synthetic touch sequences — see [docs/EVALUATION.md](docs/EVALUATION.md).
-  Highlights at the default strength (70 %): character errors on everyday sentences
-  4.34 % → 2.15 % (everyday typist) and 14.4 % → 9.6 % (fast typist); 24 unwanted
-  substitutions vs 384 rescues in 16,410 taps; deliberate unusual strings (qwerty, xkcd,
-  jjjj…) unaffected; a learned personal offset recovered to within 0.01 key of the true
-  one. **These are synthetic results that show the mechanism works under a stated noise
+  At the default strength (70 %): character errors on everyday sentences 4.34 % → 2.15 %
+  (everyday typist) and 14.4 % → 9.6 % (fast typist); deliberate unusual strings unaffected;
+  zero false corrections on Dutch, mixed Dutch/English and English text with both
+  languages active. **Synthetic results show the mechanism works under a stated noise
   model; they are not proof of better real-world typing.**
-* **On an Android 16 emulator configured like the phone (1200×2608, 480 dpi)**, driven
-  through real `adb` taps: install and enabling as an IME; typing with auto-cap and
-  correction ("i like teh keybaord" → "I like the keyboard"); backspace-revert and
-  the Learn chip; password and URL fields left literal; numeric pad; symbols; long-press
-  accents; emoji panel; quick panel; dark theme; landscape; persistence of learned words
-  across process restarts; private mode storing nothing; developer overlay; settings,
-  dictionary and practice screens. Compositor blur was confirmed active on the IME layer
-  via SurfaceFlinger.
+* **On an Android 16 emulator** at the phone's resolution, driven through real `adb`
+  touch events: typing and correction, backspace-revert, literal fields, number pad,
+  symbols, long-press (hold m → "?"), emoji panel and search, quick panel, dark theme,
+  landscape, slide to type ("hello world keyboard"), persistence, private mode, settings.
 
-Measured timings (emulator on a desktop x86 CPU, **not the phone**): tap decision
-≈5 µs; model load 62 ms. Desktop JVM: full word correction 0.5–0.8 ms per word.
+Measured timings on a desktop x86 CPU (emulator or JVM, **not the phone**): tap decision
+≈5 µs; word correction 0.5–0.8 ms; slide-to-type decoding ≈4 ms; model load 62 ms.
 
-## Limitations and what remains unverified
+## Limitations
 
-* **Not run on a real Xiaomi / HyperOS device.** Unverified there: whether HyperOS
-  enables cross-window blur for keyboards (the app detects it and falls back to a
-  self-drawn frosted plate), haptic feel, frame timing, battery use, and HyperOS-specific
-  keyboard settings paths. *Next step:* install the APK, turn on *Show effective touch
-  regions* once to see decode times on the phone, and try Practice & compare.
+* **Not yet measured on the phone:** frame timing and battery use. Turning on *Show
+  effective touch regions* shows per-tap decode time on the device.
 * **Evaluation is synthetic.** Real benefit must be judged with your own typing
-  (Practice & compare) — its results depend on your touches and aren't sent anywhere.
-* **No bundled next-word model.** Suggestions complete and correct the current word;
-  predictions of the *next* word only come from your own word pairs as you type.
+  (Settings ▸ Practice & compare), which stays on the phone.
 * **No refraction of app content.** Android never lets a keyboard read other apps'
-  pixels; the glass uses real compositor blur where available plus self-drawn highlights.
-  Liquid Glass motion-reactive lighting is not implemented (it would need sensors).
-* English (US) only; no swipe typing; no emoji skin tones or emoji search.
+  pixels; the glass uses real compositor blur plus self-drawn highlights.
+* **Black areas behind the keyboard** in some apps: the keyboard can't see them, so
+  *Auto* guesses from how the app was built (Android 15+ apps stay clear glass, older ones
+  get an app-coloured frost); override per app with *Auto / Clear / Tinted* in the
+  keyboard's controls.
+* An extra *first* letter far from the next key ("rnew") is offered as the top
+  suggestion but not auto-replaced, because it is ambiguous ("new" / "renew").
+* English and Dutch only; no emoji skin tones.
 * Tapping into the middle of existing text resets suggestions for that word (backspacing
   into a word does resume them).
-* On devices showing a keyboard-switch button in the navigation bar, the globe key is redundant.
 * A hardware keyboard hides the on-screen keyboard (standard Android behaviour).
 * The APK is a debug build signed with a debug key. For a store/release build, create
   your own signing key and run `./gradlew :app:assembleRelease`.
