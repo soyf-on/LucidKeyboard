@@ -6,13 +6,15 @@ import java.io.File
 fun main(args: Array<String>) {
     val src = File(args[0]); val out = File(args[1])
     out.mkdirs()
-    val t0 = System.nanoTime()
-    val lex = Lexicon.readTsv(File(src, "en_words.tsv"))
-    File(out, ModelBundle.LEXICON).outputStream().use { lex.write(it) }
-    val words = File(src, "en_words.tsv").readLines().map { it.substringBefore('\t') }
-    val ngram = CharNgram.train(words.asSequence())
-    File(out, ModelBundle.NGRAM).outputStream().use { ngram.write(it) }
-    File(src, "en_replacements.tsv").copyTo(File(out, ModelBundle.REPLACEMENTS), overwrite = true)
+    for (lang in ModelBundle.LANGUAGES) {
+        val t0 = System.nanoTime()
+        val tsv = File(src, "${lang}_words.tsv")
+        val lex = Lexicon.readTsv(tsv)
+        File(out, ModelBundle.lexiconFile(lang)).outputStream().use { lex.write(it) }
+        val ngram = CharNgram.train(tsv.readLines().asSequence().map { it.substringBefore('\t') })
+        File(out, ModelBundle.ngramFile(lang)).outputStream().use { ngram.write(it) }
+        File(src, "${lang}_replacements.tsv").copyTo(File(out, ModelBundle.replacementsFile(lang)), overwrite = true)
+        println("$lang: ${lex.wordCount} words, ${lex.nodeCount} nodes in ${(System.nanoTime() - t0) / 1_000_000} ms")
+    }
     File(src, "emoji.tsv").copyTo(File(out, ModelBundle.EMOJI), overwrite = true)
-    println("lexicon: ${lex.wordCount} words, ${lex.nodeCount} nodes in ${(System.nanoTime() - t0) / 1_000_000} ms")
 }

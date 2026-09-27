@@ -82,15 +82,16 @@ class EvaluationTest {
     private data class WordStats(var words: Int = 0, var correct: Int = 0, var falseCorrections: Int = 0, var fixes: Int = 0)
 
     /** Full pipeline (decoder + autocorrect + input logic) word accuracy. */
-    private fun pipeline(texts: List<String>, t: Typist, decoder: DecoderSettings, mode: CorrectionMode, seeds: Int = 3): WordStats {
+    private fun pipeline(texts: List<String>, t: Typist, decoder: DecoderSettings, mode: CorrectionMode, seeds: Int = 3, langs: List<String> = listOf("en")): WordStats {
         val st = WordStats()
         for (seed in 1..seeds) {
             val rng = Random(seed * 77L)
-            val e = Fixtures.engine()
+            val e = Fixtures.engine(langs = langs)
             e.logic.settings = TypingSettings(decoder = decoder, correction = mode, autoCapitalize = false, learnTouch = false, learnWords = false)
             e.logic.startInput(FieldInfo.DEFAULT)
             for (s in texts) for (w in s.split(' ')) {
-                for (c in w) e.tapLetter(Fixtures.touchFor(c, rng, t.sx, t.sy, t.bx, t.by))
+                // Apostrophes etc. are typed as literal characters (long-press), letters as noisy taps.
+                for (c in w) if (Fixtures.layout.letter(c) == null) e.logic.onText(c.toString()) else e.tapLetter(Fixtures.touchFor(c, rng, t.sx, t.sy, t.bx, t.by))
                 val literal = e.logic.composingText
                 e.logic.onSeparator(" ")
                 val final = e.editor.text.trimEnd().substringAfterLast(' ')
@@ -202,6 +203,21 @@ class EvaluationTest {
                 val w = pipeline(slangNames, everyday, dc, m)
                 sb.appendLine("| $dn | ${m.name.lowercase()} | ${w.words} | ${"%.1f".format(100.0 * w.correct / w.words)}% | ${w.falseCorrections} |")
             }
+        sb.appendLine()
+
+        sb.appendLine("## 6. Dutch and mixed Dutch/English (both languages active)").appendLine()
+        sb.appendLine("The same pipeline with English + Nederlands enabled together, no manual switching. ")
+        sb.appendLine("Everyday typist, 3 seeds. The key column is *false corrections*: correctly typed words changed by autocorrect.").appendLine()
+        sb.appendLine("| Text | Decoder | Autocorrect | Words | Word accuracy | False corrections | Words fixed |")
+        sb.appendLine("|---|---|---|---:|---:|---:|---:|")
+        for ((name, file) in listOf("Dutch" to "sentences_nl.txt", "Mixed NL/EN" to "sentences_mixed.txt", "English" to "sentences.txt")) {
+            val texts = res(file).take(20)
+            for ((dn, dc) in listOf("Fixed" to Replay.FIXED, "Adaptive 0.7" to DecoderSettings(strength = 0.7)))
+                for (m in listOf(CorrectionMode.OFF, CorrectionMode.BALANCED)) {
+                    val w = pipeline(texts, everyday, dc, m, langs = listOf("en", "nl"))
+                    sb.appendLine("| $name | $dn | ${m.name.lowercase()} | ${w.words} | ${"%.1f".format(100.0 * w.correct / w.words)}% | ${w.falseCorrections} | ${w.fixes} |")
+                }
+        }
         sb.appendLine()
 
         val out = File(System.getProperty("report.dir") ?: "../docs", "EVALUATION.md")

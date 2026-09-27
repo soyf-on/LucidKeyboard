@@ -8,17 +8,28 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import kotlin.math.pow
 
-/** Symbols the character model predicts: a–z, apostrophe, and END (word boundary). */
+/**
+ * Symbols the character model predicts: a–z, apostrophe, and END (word boundary).
+ * Accented Latin letters fold onto their base letter (ë → e), so the trie is keyed by
+ * what the keyboard can tap while each word keeps its accents for display ("ideeën").
+ */
 object Alphabet {
     const val APOS = 26
     const val END = 27
     const val SIZE = 28
+    private const val FROM = "àáâãäåāąçćčèéêëēėęìíîïīįłñńòóôõöøōùúûüūýÿśšßźżž"
+    private const val TO   = "aaaaaaaaccceeeeeeeiiiiiilnnooooooouuuuuyyssszzz"
     fun index(c: Char): Int = when (c) {
         in 'a'..'z' -> c - 'a'
         in 'A'..'Z' -> c - 'A'
         '\'', '’' -> APOS
-        else -> -1
+        else -> {
+            val i = FROM.indexOf(c.lowercaseChar())
+            if (i >= 0) TO[i] - 'a' else -1
+        }
     }
+    /** Base letter for [c] (accents removed), or null if outside the alphabet. */
+    fun fold(c: Char): Char? = index(c).let { if (it < 0) null else char(it) }
     fun char(i: Int): Char = if (i < 26) 'a' + i else if (i == APOS) '\'' else ' '
 }
 

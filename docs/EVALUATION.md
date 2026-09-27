@@ -168,3 +168,23 @@ Slang and names (the words themselves, 3 seeds, everyday typist):
 | Adaptive 0.7 | balanced | 60 | 73.3% | 2 |
 | Adaptive 0.7 | strong | 60 | 71.7% | 3 |
 
+## 6. Dutch and mixed Dutch/English (both languages active)
+
+The same pipeline with English + Nederlands enabled together, no manual switching. 
+Everyday typist, 3 seeds. The key column is *false corrections*: correctly typed words changed by autocorrect.
+
+| Text | Decoder | Autocorrect | Words | Word accuracy | False corrections | Words fixed |
+|---|---|---|---:|---:|---:|---:|
+| Dutch | Fixed | off | 363 | 81.3% | 0 | 0 |
+| Dutch | Fixed | balanced | 363 | 93.9% | 0 | 46 |
+| Dutch | Adaptive 0.7 | off | 363 | 89.3% | 0 | 0 |
+| Dutch | Adaptive 0.7 | balanced | 363 | 95.6% | 0 | 23 |
+| Mixed NL/EN | Fixed | off | 231 | 81.4% | 0 | 0 |
+| Mixed NL/EN | Fixed | balanced | 231 | 93.1% | 0 | 27 |
+| Mixed NL/EN | Adaptive 0.7 | off | 231 | 90.5% | 0 | 0 |
+| Mixed NL/EN | Adaptive 0.7 | balanced | 231 | 94.8% | 0 | 10 |
+| English | Fixed | off | 456 | 82.2% | 0 | 0 |
+| English | Fixed | balanced | 456 | 94.7% | 0 | 57 |
+| English | Adaptive 0.7 | off | 456 | 90.8% | 0 | 0 |
+| English | Adaptive 0.7 | balanced | 456 | 95.6% | 0 | 22 |
+

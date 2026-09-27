@@ -48,7 +48,7 @@ class CharNgram private constructor(private val rows: HashMap<String, ByteArray>
 
         private fun contextKey(prefix: CharSequence, len: Int = ORDER): String {
             val sb = StringBuilder()
-            val padded = "^" + prefix.toString().lowercase()
+            val padded = "^" + prefix.toString().map { Alphabet.fold(it) ?: it.lowercaseChar() }.joinToString("")
             val start = maxOf(0, padded.length - len)
             sb.append(padded, start, padded.length)
             return sb.toString()
@@ -68,7 +68,7 @@ class CharNgram private constructor(private val rows: HashMap<String, ByteArray>
             for (w0 in words) {
                 val w = w0.lowercase()
                 if (w.any { Alphabet.index(it) < 0 }) continue
-                val padded = "^$w"
+                val padded = "^" + w.map { Alphabet.fold(it)!! }.joinToString("")
                 for (i in 1..padded.length) {
                     val sym = if (i == padded.length) Alphabet.END else Alphabet.index(padded[i])
                     for (len in 0..ORDER) {

@@ -2,26 +2,24 @@ package dev.lucid.keyboard.core.lm
 
 import java.io.InputStream
 
-/** The static models shipped with the app. [open] resolves an asset name to a stream. */
-class ModelBundle(
-    val lexicon: Lexicon,
-    val ngram: CharNgram,
-    /** from -> (to, weakest mode name) */
-    val replacements: Map<String, Pair<String, String>>,
-) {
-    companion object {
-        const val LEXICON = "en_lexicon.bin"
-        const val NGRAM = "en_charlm.bin"
-        const val REPLACEMENTS = "en_replacements.tsv"
-        const val EMOJI = "emoji.tsv"
+/** Loads the static per-language models shipped with the app. [open] resolves an asset name. */
+object ModelBundle {
+    const val EMOJI = "emoji.tsv"
+    val LANGUAGES = listOf("en", "nl")
+    val NAMES = mapOf("en" to "English", "nl" to "Nederlands")
 
-        fun load(open: (String) -> InputStream): ModelBundle {
-            val lex = open(LEXICON).use { Lexicon.read(it) }
-            val ng = open(NGRAM).use { CharNgram.read(it) }
-            val reps = open(REPLACEMENTS).bufferedReader().useLines { lines ->
+    fun lexiconFile(lang: String) = "${lang}_lexicon.bin"
+    fun ngramFile(lang: String) = "${lang}_charlm.bin"
+    fun replacementsFile(lang: String) = "${lang}_replacements.tsv"
+
+    fun loadPack(lang: String, open: (String) -> InputStream): LanguagePack {
+        val lex = open(lexiconFile(lang)).use { Lexicon.read(it) }
+        val ng = open(ngramFile(lang)).use { CharNgram.read(it) }
+        val reps = runCatching {
+            open(replacementsFile(lang)).bufferedReader().useLines { lines ->
                 lines.mapNotNull { l -> l.split('\t').takeIf { it.size == 3 }?.let { it[0] to (it[1] to it[2]) } }.toMap()
             }
-            return ModelBundle(lex, ng, reps)
-        }
+        }.getOrDefault(emptyMap())
+        return LanguagePack(lang, lex, ng, reps)
     }
 }

@@ -7,6 +7,7 @@ import dev.lucid.keyboard.core.geometry.Layouts
 import dev.lucid.keyboard.core.input.InputLogic
 import dev.lucid.keyboard.core.input.TextEditor
 import dev.lucid.keyboard.core.lm.LanguageModel
+import dev.lucid.keyboard.core.lm.LanguagePack
 import dev.lucid.keyboard.core.lm.ModelBundle
 import dev.lucid.keyboard.core.lm.UserVocabulary
 import dev.lucid.keyboard.core.touch.SpatialModel
@@ -18,7 +19,8 @@ import java.util.Random
 object Fixtures {
     private val assets = File(System.getProperty("assets.dir") ?: "../app/src/main/assets")
 
-    val bundle: ModelBundle by lazy { ModelBundle.load { File(assets, it).inputStream() } }
+    private val packCache = HashMap<String, LanguagePack>()
+    fun pack(lang: String): LanguagePack = packCache.getOrPut(lang) { ModelBundle.loadPack(lang) { File(assets, it).inputStream() } }
 
     /** Portrait geometry close to a 1200 px-wide phone (Xiaomi 17 Pro Max class). */
     val params = LayoutParams(
@@ -27,7 +29,7 @@ object Fixtures {
     )
     val layout: KeyboardLayout by lazy { Layouts.qwerty(params) }
 
-    fun lm(user: UserVocabulary = UserVocabulary()) = LanguageModel(bundle.lexicon, bundle.ngram, user, bundle.replacements)
+    fun lm(user: UserVocabulary = UserVocabulary(), langs: List<String> = listOf("en")) = LanguageModel(langs.map { pack(it) }, user)
 
     class Engine(val lm: LanguageModel, val spatial: SpatialModel = SpatialModel()) {
         val decoder = TouchDecoder(lm, spatial)
@@ -54,7 +56,7 @@ object Fixtures {
         }
     }
 
-    fun engine(user: UserVocabulary = UserVocabulary()) = Engine(lm(user))
+    fun engine(user: UserVocabulary = UserVocabulary(), langs: List<String> = listOf("en")) = Engine(lm(user, langs))
 
     /** Synthetic touch for an intended key: Gaussian around the key centre plus a bias. */
     fun touchFor(c: Char, rng: Random, sx: Double, sy: Double, biasX: Double = 0.0, biasY: Double = 0.0, lay: KeyboardLayout = layout): TouchPoint {

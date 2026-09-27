@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Builds the bundled English word list from wordfreq + SCOWL.
+"""Builds the bundled word lists from wordfreq + a spell-checked list per language.
 
 Reproduce:
     uv venv .venv && . .venv/bin/activate && uv pip install wordfreq==3.1.1
     unmunch tools/data/en_US.dic tools/data/en_US.aff > /tmp/scowl.txt
-    python tools/build_lexicon.py /tmp/scowl.txt
+    python tools/build_lexicon.py en /tmp/scowl.txt
+    python tools/build_lexicon.py nl tools/data/opentaal-wordlist.txt
 
 Outputs (committed):
-    lexicon/en_words.tsv         word <TAB> zipf*100 <TAB> V|F
+    lexicon/<lang>_words.tsv     word <TAB> zipf*100 <TAB> V|F
         V = spell-checked (in SCOWL), F = frequent informal word not in SCOWL
     lexicon/en_replacements.tsv  from <TAB> to <TAB> gentle|balanced|strong
     lexicon/emoji.tsv            group <TAB> emoji
@@ -23,15 +24,20 @@ import wordfreq
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "lexicon")
-WORD_RE = re.compile(r"^[a-z]+('[a-z]+)?$")
+# Latin letters incl. the accented ones used in Dutch/English loanwords (ë, é, ï, ...).
+L = "a-zà-öø-ÿ"
+WORD_RE = re.compile(rf"^[{L}]+('[{L}]+)?$")
 CONTRACTION_RE = re.compile(r"(n't|'m|'re|'ve|'ll|'d)$|^(that|what|he|she|there|here|who|where|how|everyone|someone|nobody)'s$")
 
 MIN_ZIPF_VALID = 1.0      # spell-checked words: keep unless vanishingly rare
 MIN_ZIPF_INFORMAL = 2.5   # slang / abbreviations not in SCOWL need real usage
 
 
+LANG = "en"
+
+
 def zipf(w):
-    return wordfreq.zipf_frequency(w, "en")
+    return wordfreq.zipf_frequency(w, LANG)
 
 
 def load_scowl(path):
@@ -85,16 +91,20 @@ def contraction_of(w, known):
     return None
 
 
-def main(scowl_path):
+def main(lang, scowl_path):
+    global LANG
+    LANG = lang
     scowl = load_scowl(scowl_path)
-    candidates = [w for w in wordfreq.top_n_list("en", 400000) if WORD_RE.match(w)]
+    candidates = [w for w in wordfreq.top_n_list(lang, 400000) if WORD_RE.match(w)]
     cand_set = set(candidates) | set(scowl)
     rows = {}
     dropped_typos = []
     for w in candidates:
         f = zipf(w)
         if w in scowl:
-            if f >= MIN_ZIPF_VALID or len(w) <= 2:
+            # Dutch compounds make a long tail of rare valid words; keep the useful part.
+            floor = MIN_ZIPF_VALID if lang == "en" else 1.5
+            if f >= floor or len(w) <= 2:
                 rows[w] = (best_case(w, scowl[w]), f, "V")
         elif f >= MIN_ZIPF_INFORMAL:
             if len(w) == 1:
@@ -110,18 +120,23 @@ def main(scowl_path):
     for k in list(rows):
         if len(k) == 1 and k not in ("a", "i"):
             del rows[k]
-    rows["i"] = ("I", zipf("i"), "V")
+    if lang == "en":
+        rows["i"] = ("I", zipf("i"), "V")
 
     os.makedirs(OUT, exist_ok=True)
-    with open(os.path.join(OUT, "en_words.tsv"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(OUT, f"{lang}_words.tsv"), "w", encoding="utf-8") as fh:
         for cased, f, flag in sorted(rows.values(), key=lambda r: (-r[1], r[0])):
             fh.write(f"{cased}\t{int(round(f * 100))}\t{flag}\n")
 
     # Apostrophe-less contractions -> contraction. Mode = weakest mode that applies it.
     reps = []
+    if lang != "en":
+        candidates_for_reps = []
+    else:
+        candidates_for_reps = candidates[:60000]
     known = {r[0].lower(): r[0] for r in rows.values()}
     known_set = set(known)
-    for w in candidates[:60000]:
+    for w in candidates_for_reps:
         c = contraction_of(w, known_set)
         if not c or zipf(w) < 2.5 or not CONTRACTION_RE.search(c):
             continue
@@ -131,7 +146,7 @@ def main(scowl_path):
                 reps.append((w, target, "strong"))
             continue
         reps.append((w, target, "balanced"))
-    with open(os.path.join(OUT, "en_replacements.tsv"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(OUT, f"{lang}_replacements.tsv"), "w", encoding="utf-8") as fh:
         for a, b, m in sorted(set(reps)):
             fh.write(f"{a}\t{b}\t{m}\n")
 
@@ -164,4 +179,4 @@ def build_emoji():
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1], sys.argv[2])

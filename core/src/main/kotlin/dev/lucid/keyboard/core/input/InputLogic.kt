@@ -313,8 +313,9 @@ class InputLogic(
         val sentenceStart = word.first().shift == ShiftSource.AUTO
         val mode = if (correct) correctionMode else CorrectionMode.OFF
         val res = corrector.correct(wordLayout, word, prevWord, mode, sentenceStart, suggestionsWanted = false)
-        val final = res.autoCorrection ?: literal
+        val final = dutchIJ(res.autoCorrection ?: literal)
         editor.commit(final + separator)
+        lm.observeWord(final)
         flushPending()
         val corrected = final != literal
         lastCorrection = if (corrected) LastCorrection(literal, final, separator, word.toList(), wordLayout, prevWord) else null
@@ -398,6 +399,7 @@ class InputLogic(
             pending = PendingWord(text, literal, word.toList(), if (text == literal) wordLayout else null, prevWord,
                 autoCorrected = false, overrodeCorrection = decline)
             prevWord = text
+            lm.observeWord(text)
             word.clear(); wordLayout = null
         } else {
             // Not composing: the only literal chip shown is the original of the last
@@ -443,7 +445,7 @@ class InputLogic(
         if (!learningEnabled) return
         val lower = p.committed.lowercase()
         if (settings.learnWords) {
-            if (!p.autoCorrected) lm.user.observeKept(p.committed, lm.lexicon.contains(lower), p.overrodeCorrection)
+            if (!p.autoCorrected) lm.user.observeKept(p.committed, lm.inLexicon(lower), p.overrodeCorrection)
             p.prev?.let { lm.user.observeBigram(it, p.committed) }
         }
         if (settings.learnTouch && settings.decoder.adaptive) learnTouches(p)
@@ -498,6 +500,14 @@ class InputLogic(
     }
 
     fun refreshAutoShift() = updateAutoShift()
+
+    /** Dutch capitalises the IJ digraph together: "Ijs" -> "IJs", "Ijsland" -> "IJsland". */
+    private fun dutchIJ(w: String): String {
+        if (w.length < 2 || w[0] != 'I' || w[1] != 'j') return w
+        if (lm.weightOf("nl") < 0.25) return w
+        val nl = lm.packs.firstOrNull { it.code == "nl" } ?: return w
+        return if (nl.lexicon.contains(w.lowercase())) "IJ" + w.substring(2) else w
+    }
 
     companion object {
         const val DOUBLE_SPACE_MS = 700L

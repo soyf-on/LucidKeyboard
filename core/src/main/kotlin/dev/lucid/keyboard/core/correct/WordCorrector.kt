@@ -106,8 +106,10 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         val table = spatialTable(layout, typed)
         val ins = insertionCosts(layout, typed)
         val n = typed.size
-        val lex = lm.lexicon
-        val total = lex.totalMass.toDouble()
+        // Searched once per active language; the word term includes that language's weight.
+        var lex = lm.packs[0].lexicon
+        var total = lex.totalMass.toDouble()
+        var langLog = 0.0
         val results = HashMap<String, Candidate>()
         val bestSeen = PriorityQueue<Double>() // min-heap of top scores for pruning
         fun bar() = if (bestSeen.size < limit) Double.NEGATIVE_INFINITY else bestSeen.peek()
@@ -122,11 +124,11 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         fun dfs(s: State) {
             if (++visits > MAX_VISITS) return
             // Upper bound: nothing below can beat the best word weight in this subtree.
-            val bound = s.score + LM_WEIGHT * ln(max(lex.maxWeightOf(s.node).toDouble(), 1e-9) / total)
+            val bound = s.score + LM_WEIGHT * (langLog + ln(max(lex.maxWeightOf(s.node).toDouble(), 1e-9) / total))
             if (bound < bar() - PRUNE_SLACK) return
             if (s.i == n) {
                 val id = lex.wordIdAt(s.node)
-                if (id >= 0) offer(s.text, s.score + LM_WEIGHT * ln(lex.weight(id) / total) + bigram(prev, s.text), s.edits, s.weight)
+                if (id >= 0) offer(s.text, s.score + LM_WEIGHT * (langLog + ln(lex.weight(id) / total)) + bigram(prev, s.text), s.edits, s.weight)
             }
             lex.forEachChild(s.node) { sym, child ->
                 val c = Alphabet.char(sym)
@@ -144,7 +146,11 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
                     // Missing apostrophe ("dont" -> "don't") is cheap and not counted as an edit.
                     if (s.i < n && Alphabet.index(typed[s.i].char) != Alphabet.APOS) dfs(State(child, s.i, s.score + APOS_COST, s.edits, s.text + c, s.weight))
                 } else if (s.edits < maxEdits && s.i > 0) {
-                    dfs(State(child, s.i, s.score + DEL_COST, s.edits + 1, s.text + c, s.weight + 1)) // letter missing from taps
+                    // Letter missing from taps. A missed *double* letter ("gezelig", "tomorow") is the
+                    // most common kind, so it is cheaper.
+                    val doubled = s.text.isNotEmpty() && s.text.last() == c
+                    dfs(State(child, s.i, s.score + if (doubled) DOUBLE_COST else DEL_COST, s.edits + 1, s.text + c,
+                        s.weight + if (doubled) DOUBLE_WEIGHT else 1.0))
                 }
                 // Transposition: taps i, i+1 were typed in swapped order.
                 if (s.edits < maxEdits && s.i + 1 < n && sym != Alphabet.APOS) {
@@ -158,13 +164,21 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
                 }
             }
             // Extra tap (insertion): skip it.
-            if (s.i < n && s.edits < maxEdits && s.i > 0) dfs(State(s.node, s.i + 1, s.score + ins[s.i], s.edits + 1, s.text, s.weight + 1))
+            if (s.i < n && s.edits < maxEdits && s.i > 0) {
+                val repeat = Alphabet.index(typed[s.i].char) == Alphabet.index(typed[s.i - 1].char) // "untill"
+                dfs(State(s.node, s.i + 1, s.score + ins[s.i], s.edits + 1, s.text, s.weight + if (repeat) DOUBLE_WEIGHT else 1.0))
+            }
         }
-        dfs(State(0, 0, 0.0, 0, ""))
+        for ((pi, pack) in lm.packs.withIndex()) {
+            lex = pack.lexicon; total = lex.totalMass.toDouble()
+            langLog = ln(lm.languageWeights[pi])
+            visits = 0
+            dfs(State(0, 0, 0.0, 0, ""))
+        }
         // Personal words aren't in the static trie; score them directly by alignment.
         for (uw in lm.user.activeWords()) {
             val w = uw.word.lowercase()
-            if (lm.lexicon.contains(w) || w.length !in (n - maxEdits)..(n + maxEdits)) continue
+            if (lm.inLexicon(w) || w.length !in (n - maxEdits)..(n + maxEdits)) continue
             val sc = alignScore(table, ins, w, maxEdits) ?: continue
             val lp = lm.wordLogProb(w, prev) ?: continue
             offer(w, sc.first + LM_WEIGHT * lp, sc.second)
@@ -204,7 +218,7 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         typed.forEachIndexed { i, t -> val s = Alphabet.index(t.char); sp += if (s < 0) 0.0 else table[i][s] }
         // An unknown literal's spelling improbability is floored per character: precise
         // taps on an unusual spelling (names, other languages) are evidence of intent.
-        val lp = lm.wordLogProb(lit, prev) ?: (max(lm.ngram.logProbWord(lit), OOV_CHAR_FLOOR * (lit.length + 1)) + LanguageModel.OOV_PENALTY)
+        val lp = lm.wordLogProb(lit, prev) ?: (max(lm.ngramLogProb(lit), OOV_CHAR_FLOOR * (lit.length + 1)) + LanguageModel.OOV_PENALTY)
         return sp + LM_WEIGHT * lp
     }
 
@@ -249,12 +263,18 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         if (typed.size >= 2 && typed.all { it.char.isUpperCase() } && typed.any { it.shift != ShiftSource.CAPS_LOCK })
             return result(null, sugg, 0.0, "all-caps (acronym)")
 
-        lm.builtInReplacements[lower]?.let { (to, minMode) ->
+        lm.replacementFor(lower)?.let { (to, minMode) ->
             val need = CorrectionMode.valueOf(minMode.uppercase())
             if (mode.ordinal >= need.ordinal && !lm.user.wasRejected(lower, to)) return result(to, listOf(to) + sugg, 99.0, "contraction")
         }
 
         if (lm.user.isActive(lower)) return result(null, sugg, 0.0, "personal word")
+        // Accent restoration: the dictionary spells this word with diacritics ("ideeen" -> "ideeën").
+        if (known) {
+            val cased = lm.casedForm(lower)
+            if (!cased.equals(literal, ignoreCase = true) && fold(cased) == fold(lower) && !lm.user.wasRejected(lower, cased))
+                return result(cased, sugg, 99.0, "accents")
+        }
         val properNoun = typed.first().shift == ShiftSource.MANUAL && !sentenceStart
         val litScore = literalScore(layout, typed, prev)
         val best = cands.firstOrNull { it.word != lower && !lm.user.wasRejected(lower, it.word) }
@@ -281,26 +301,29 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         else result(null, sugg, margin, if (known) "literal is a known word" else "below threshold")
     }
 
-    /** Word completions for the suggestion strip while typing (prefix predictions). */
+    /** Word completions for the suggestion strip while typing (prefix predictions), across languages. */
     fun completions(prefixLower: String, limit: Int = 3): List<String> {
-        val node = lm.lexicon.nodeFor(prefixLower)
-        if (node < 0) return emptyList()
-        val lex = lm.lexicon
-        val out = ArrayList<Pair<String, Float>>()
-        // Best-first over subtree by max weight.
-        val pq = PriorityQueue<Triple<Int, String, Float>>(compareByDescending { it.third })
-        pq += Triple(node, prefixLower, lex.maxWeightOf(node))
-        var steps = 0
-        while (pq.isNotEmpty() && out.size < limit + 1 && steps++ < 4000) {
-            val (nd, text, _) = pq.poll()
-            val id = lex.wordIdAt(nd)
-            if (id >= 0 && text.length > prefixLower.length && !lm.user.isBlocked(text)) {
-                // A node's own word is emitted when it is the best remaining weight.
-                out += lex.cased(id) to lex.weight(id)
+        val out = HashMap<String, Double>()
+        for ((pi, pack) in lm.packs.withIndex()) {
+            val lex = pack.lexicon
+            val node = lex.nodeFor(prefixLower)
+            if (node < 0) continue
+            val w = lm.languageWeights[pi] / lex.totalMass
+            // Best-first over the subtree by the largest word weight below each node.
+            val pq = PriorityQueue<Pair<Int, Float>>(compareByDescending { it.second })
+            pq += node to lex.maxWeightOf(node)
+            var steps = 0; var found = 0
+            while (pq.isNotEmpty() && found < limit + 2 && steps++ < 4000) {
+                val (nd, _) = pq.poll()
+                val id = lex.wordIdAt(nd)
+                if (id >= 0 && nd != node) {
+                    val cased = lex.cased(id)
+                    if (!lm.user.isBlocked(cased)) { out.merge(cased, lex.weight(id) * w) { a, b2 -> a + b2 }; found++ }
+                }
+                lex.forEachChild(nd) { _, ch -> pq += ch to lex.maxWeightOf(ch) }
             }
-            lex.forEachChild(nd) { sym, ch -> pq += Triple(ch, text + Alphabet.char(sym), lex.maxWeightOf(ch)) }
         }
-        return out.sortedByDescending { it.second }.map { it.first }.distinct().take(limit)
+        return out.entries.sortedByDescending { it.value }.map { it.key }.take(limit)
     }
 
     companion object {
@@ -312,6 +335,8 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         const val SUB_VOWEL_COST = -6.5
         const val VOWEL_SUB_WEIGHT = 0.5
         const val DEL_COST = -7.0
+        const val DOUBLE_COST = -4.0
+        const val DOUBLE_WEIGHT = 0.4
         const val INS_COST = -6.5
         const val INS_FAR_COST = -12.0
         const val EDIT_MARGIN = 2.5
@@ -330,6 +355,7 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         const val STRONG_KNOWN_MARGIN = 7.0
 
         private fun isVowel(c: Char) = c in "aeiou"
+        private fun fold(s: String) = s.map { Alphabet.fold(it) ?: it }.joinToString("")
 
         /** Applies the typed word's capitalisation to a candidate. */
         fun restoreCase(candidate: String, typed: List<TypedChar>): String {
