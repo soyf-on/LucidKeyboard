@@ -50,6 +50,7 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
     private val d = resources.displayMetrics.density
     private val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 16.5f * resources.displayMetrics.density }
     private val divider = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val flat = Paint(Paint.ANTI_ALIAS_FLAG)
     private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val btnRect = RectF(); private val hideRect = RectF(); private val tmp = RectF(); private val tmp2 = RectF()
     private var pressed = -1
@@ -84,6 +85,9 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
             last != null -> listOf(
                 Chip(Kind.ACTION_REVERT, "↶ “${last.first}”", last.first),
             )
+            // Nothing typed, but there is context: next-word predictions.
+            s.literal.isEmpty() && s.predictions.isNotEmpty() -> listOf(Chip(Kind.SHORTCUT_EMOJI, "", "")) +
+                s.predictions.take(3).map { Chip(Kind.SUGGESTION, it, it) }
             // Nothing typed: shortcuts instead of an empty bar.
             s.literal.isEmpty() -> listOfNotNull(
                 Chip(Kind.SHORTCUT_EMOJI, "", ""),
@@ -112,12 +116,16 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
         val bs = h * 0.72f
         btnRect.set(8 * d, (h - bs) / 2, 8 * d + bs, (h + bs) / 2)
         hideRect.set(w - 8 * d - bs, (h - bs) / 2, w - 8 * d, (h + bs) / 2)
-        renderer.drawCap(c, btnRect, if (quickPanelOpen) CapStyle.ACCENT else CapStyle.FUNCTION, 0f, btnRect.centerX(), btnRect.centerY())
-        drawSliders(c, btnRect, if (quickPanelOpen) p.labelOnAccent else p.label)
+        if (quickPanelOpen) {
+            flat.color = p.chipActive
+            c.drawRoundRect(btnRect, btnRect.height() / 2, btnRect.height() / 2, flat)
+        }
+        drawSliders(c, btnRect, p.label)
         drawChevron(c, hideRect, p.labelSecondary)
         if (privateMode) {
-            text.textSize = 10 * d; text.color = p.labelSecondary; text.typeface = Typeface.DEFAULT_BOLD
-            c.drawText("PRIVATE", btnRect.right + 26 * d, h - 5 * d, text)
+            // Private mode: a small accent dot on the controls button.
+            flat.color = p.accentTop
+            c.drawCircle(btnRect.right - btnRect.width() * 0.18f, btnRect.top + btnRect.height() * 0.2f, 3.5f * d, flat)
         }
         chipRects.clear()
         if (chips.isEmpty()) return
@@ -128,9 +136,10 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
             val r = RectF(left + i * cw, 0f, left + (i + 1) * cw, h)
             chipRects += r
             if (chip.kind == Kind.SHORTCUT_EMOJI || chip.kind == Kind.SHORTCUT_SWITCH || chip.kind == Kind.SHORTCUT_PUNCT) {
-                val bw = min(cw - 8 * d, 58 * d); val bh = h * 0.72f
-                tmp.set(r.centerX() - bw / 2, (h - bh) / 2, r.centerX() + bw / 2, (h + bh) / 2)
-                renderer.drawCap(c, tmp, CapStyle.FUNCTION, if (i == pressed) 1f else 0f, tmp.centerX(), tmp.centerY())
+                // Plain glyphs, like a system toolbar; a soft round highlight only while pressed.
+                val bh = h * 0.72f
+                tmp.set(r.centerX() - bh / 2, (h - bh) / 2, r.centerX() + bh / 2, (h + bh) / 2)
+                if (i == pressed) { flat.color = p.chipActive; c.drawOval(tmp, flat) }
                 when (chip.kind) {
                     Kind.SHORTCUT_EMOJI -> drawSmiley(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
                     Kind.SHORTCUT_SWITCH -> drawGlobe(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
@@ -143,8 +152,9 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
                 return@forEachIndexed
             }
             if (chip.emphasis || i == pressed) {
-                tmp.set(r.left + 3 * d, r.top + 5 * d, r.right - 3 * d, r.bottom - 5 * d)
-                renderer.drawCap(c, tmp, CapStyle.LETTER, if (i == pressed) 1f else 0f, tmp.centerX(), tmp.centerY())
+                tmp.set(r.left + 4 * d, r.top + 6 * d, r.right - 4 * d, r.bottom - 6 * d)
+                flat.color = if (i == pressed) p.chipActive else p.chip
+                c.drawRoundRect(tmp, tmp.height() / 2, tmp.height() / 2, flat)
             } else if (i > 0 && !chips[i - 1].emphasis) {
                 c.drawRect(r.left - 0.5f * d, h * 0.3f, r.left + 0.5f * d, h * 0.7f, divider)
             }

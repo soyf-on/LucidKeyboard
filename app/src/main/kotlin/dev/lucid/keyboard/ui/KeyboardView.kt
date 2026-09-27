@@ -47,7 +47,11 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         fun onCursorMove(steps: Int)
         fun onLongPressFunction(key: Key): Boolean = false
         fun onKeyDownFeedback(key: Key)
+        /** A slide-to-type path (layout coordinates), started on a letter key. */
+        fun onGesture(path: List<TouchPoint>) {}
     }
+
+    var gestureTyping = true
 
     var listener: Listener? = null
     /** Called when the view's width changes, so the owner can rebuild the layout for the real width
@@ -82,24 +86,27 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
     private val path = Path()
 
     // ---- press animation ---------------------------------------------------------------
-    private val pressDownAt = HashMap<Key, Long>()
-    private val pressUpAt = HashMap<Key, Long>()
+    // Each pressed key has a spring: it lights up instantly under the finger (feedback must
+    // never lag), then lifts smoothly; on release it glides back instead of snapping.
+    private val pressSprings = HashMap<Key, Spring>()
     private val glowAt = HashMap<Key, TouchPoint>()
-    private val pressInMs get() = if (renderer.reduceMotion) 1L else 70L
-    private val pressOutMs get() = if (renderer.reduceMotion) 60L else 220L
+    private val clock = FrameClock()
+    /** 1 while the space bar is being used as a trackpad: labels fade out, like iOS. */
+    private val trackpad = Spring(0f, response = 0.3f, dampingFraction = 0.9f)
 
-    private fun pressProgress(k: Key, now: Long): Float {
-        pressDownAt[k]?.let { d -> return min(1f, (now - d).toFloat() / pressInMs) }
-        pressUpAt[k]?.let { u ->
-            val p = 1f - (now - u).toFloat() / pressOutMs
-            if (p <= 0f) { pressUpAt.remove(k); glowAt.remove(k); return 0f }
-            return p
-        }
-        return 0f
+    private fun press(k: Key, at: TouchPoint) {
+        val sp = pressSprings.getOrPut(k) { Spring(0f, response = 0.22f, dampingFraction = 0.72f) }
+        if (renderer.reduceMotion) sp.snap(1f) else { if (sp.value < 0.55f) sp.snap(0.55f); sp.target = 1f }
+        glowAt[k] = at
+        postInvalidateOnAnimation()
     }
 
-    private fun press(k: Key, at: TouchPoint) { pressUpAt.remove(k); pressDownAt[k] = SystemClock.uptimeMillis(); glowAt[k] = at; postInvalidateOnAnimation() }
-    private fun release(k: Key) { if (pressDownAt.remove(k) != null) pressUpAt[k] = SystemClock.uptimeMillis(); postInvalidateOnAnimation() }
+    private fun release(k: Key) {
+        val sp = pressSprings[k] ?: return
+        sp.target = 0f
+        if (renderer.reduceMotion) sp.snap(0f)
+        postInvalidateOnAnimation()
+    }
 
     // ---- pointers ----------------------------------------------------------------------
     private class Ptr(val id: Int, val key: Key, val down: TouchPoint, val decision: TapDecision, val downTime: Long) {
@@ -109,6 +116,7 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         var alternates: List<String>? = null
         var altIndex = 0
         var longPressFired = false
+        var gesture: ArrayList<TouchPoint>? = null
     }
 
     private val ptrs = ArrayList<Ptr>()
@@ -164,10 +172,28 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
                 for (p in ptrs) {
                     val idx = e.findPointerIndex(p.id); if (idx < 0) continue
                     val x = e.getX(idx)
+                    // Slide to type: a single finger that leaves its letter key becomes a gesture.
+                    if (gestureTyping && ptrs.size == 1 && p.key.kind == KeyKind.LETTER && !p.committed && p.alternates == null) {
+                        val g = p.gesture
+                        if (g == null && abs(x - p.down.x) + abs(e.getY(idx) - p.down.y) > lay.unitW * 0.6f) {
+                            p.gesture = arrayListOf(p.down)
+                            removeCallbacks(longPressRunnable)
+                            overlay?.hidePreview()
+                            release(p.key)
+                            trailFade.snap(1f)
+                        }
+                        p.gesture?.let { gp ->
+                            for (h in 0 until e.historySize) gp += TouchPoint(e.getHistoricalX(idx, h), e.getHistoricalY(idx, h))
+                            gp += TouchPoint(x, e.getY(idx))
+                            trail = gp
+                            postInvalidateOnAnimation()
+                        }
+                        if (p.gesture != null) continue
+                    }
                     if (p.key.kind == KeyKind.SPACE && !p.committed) {
                         val step = lay.unitW * 0.45f
                         if (!p.cursorMode && abs(x - p.down.x) > 14 * density) {
-                            p.cursorMode = true; p.cursorAnchorX = x
+                            p.cursorMode = true; p.cursorAnchorX = x; postInvalidateOnAnimation()
                             removeCallbacks(longPressRunnable)
                             listener?.onKeyDownFeedback(p.key)
                         }
@@ -206,6 +232,14 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         release(p.key)
         if (p.key.kind == KeyKind.BACKSPACE) removeCallbacks(repeatRunnable)
         val alts = p.alternates
+        p.gesture?.let { g ->
+            p.committed = true
+            trailFade.target = 0f
+            postInvalidateOnAnimation()
+            if (g.size >= 3) listener?.onGesture(g.toList())
+            overlay?.hidePreview()
+            return
+        }
         when {
             alts != null -> { overlay?.hideAlternates(); p.committed = true; if (p.altIndex in alts.indices) listener?.onText(applyShift(alts[p.altIndex])) }
             p.cursorMode || p.longPressFired -> p.committed = true
@@ -256,12 +290,17 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
     override fun onDraw(canvas: Canvas) {
         val lay = layout ?: return
         val p = renderer.palette ?: return
-        val now = SystemClock.uptimeMillis()
+        val dt = clock.tick()
         var animating = false
+        trackpad.target = if (ptrs.any { it.cursorMode }) 1f else 0f
+        if (renderer.reduceMotion) trackpad.snap(trackpad.target)
+        if (trackpad.step(dt)) animating = true
         regionMap?.let { drawRegionMap(canvas, it) }
         for (k in lay.keys) {
-            val prog = pressProgress(k, now)
-            if (prog > 0f && (pressUpAt.containsKey(k) || prog < 1f)) animating = true
+            val sp = pressSprings[k]
+            if (sp != null && sp.step(dt)) animating = true
+            val prog = (sp?.value ?: 0f).coerceIn(0f, 1.15f)
+            if (sp != null && !sp.isMoving && sp.target == 0f) { pressSprings.remove(k); glowAt.remove(k) }
             capRect.set(k.x, k.y, k.x + k.w, k.y + k.h)
             val style = when {
                 k.kind == KeyKind.ENTER && enterIsAction -> CapStyle.ACCENT
@@ -271,10 +310,17 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
             }
             val g = glowAt[k]
             renderer.drawCap(canvas, capRect, style, prog, g?.x ?: k.cx, g?.y ?: k.cy)
-            drawLabel(canvas, k, style, p)
+            if (trackpad.value < 0.98f || k.kind == KeyKind.SPACE) {
+                if (trackpad.value > 0.01f && k.kind != KeyKind.SPACE) canvas.saveLayerAlpha(k.x, k.y, k.x + k.w, k.y + k.h, (255 * (1f - trackpad.value)).toInt().coerceIn(0, 255))
+                drawLabel(canvas, k, style, p)
+                if (trackpad.value > 0.01f && k.kind != KeyKind.SPACE) canvas.restore()
+            }
         }
+        if (trailFade.step(dt)) animating = true
+        trail?.let { drawTrail(canvas, it, p) }
+        if (trailFade.value <= 0.01f && ptrs.none { it.gesture != null }) trail = null
         if (overlayEnabled) drawTapOverlay(canvas)
-        if (animating) postInvalidateOnAnimation()
+        if (animating) postInvalidateOnAnimation() else clock.reset()
     }
 
     private fun drawLabel(c: Canvas, k: Key, style: CapStyle, p: GlassPalette) {
@@ -308,10 +354,12 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         labelPaint.textSize = fitTextSize(labelPaint, text, k.w - 14 * density, maxSize)
         val fm = labelPaint.fontMetrics
         c.drawText(text, cx, cy - (fm.ascent + fm.descent) / 2, labelPaint)
-        if (showDigitHints && k.kind == KeyKind.LETTER && k.row == 0 && k.longPress.isNotEmpty()) {
-            hintPaint.color = ColorUtils.setAlphaComponent(p.labelSecondary, 150)
-            hintPaint.textSize = 9 * density
-            c.drawText(k.longPress[0], k.x + k.w - 8 * density, k.y + 12 * density, hintPaint)
+        if (showDigitHints && k.kind == KeyKind.LETTER && k.longPress.isNotEmpty()) {
+            // What long-press types, small and inset so it never touches the key edge.
+            hintPaint.color = ColorUtils.setAlphaComponent(p.labelSecondary, 170)
+            hintPaint.textSize = min(10.5f * density, k.h * 0.2f)
+            val fm = hintPaint.fontMetrics
+            c.drawText(k.longPress[0], k.x + k.w - 9 * density, k.y + 6 * density - fm.ascent, hintPaint)
         }
     }
 
@@ -385,6 +433,35 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         c.drawLine(cx - r, cy, cx + r, cy, iconPaint)
         capRect.set(cx - r * 0.45f, cy - r, cx + r * 0.45f, cy + r)
         c.drawOval(capRect, iconPaint)
+    }
+
+    // ---- slide-to-type trail ---------------------------------------------------------------
+
+    private var trail: List<TouchPoint>? = null
+    private val trailFade = Spring(0f, response = 0.35f, dampingFraction = 1f)
+    private val trailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val trailPath = Path()
+
+    /** A soft line that tapers toward the start, like a light brush stroke. */
+    private fun drawTrail(c: Canvas, pts: List<TouchPoint>, p: GlassPalette) {
+        if (pts.size < 2) return
+        val from = maxOf(0, pts.size - 90)
+        val segs = 6
+        val per = maxOf(1, (pts.size - from) / segs)
+        for (sgi in 0 until segs) {
+            val a = from + sgi * per
+            val b = if (sgi == segs - 1) pts.size - 1 else minOf(pts.size - 1, a + per)
+            if (b <= a) continue
+            trailPath.reset(); trailPath.moveTo(pts[a].x, pts[a].y)
+            for (i in a + 1..b) {
+                val m = pts[i - 1]; val q = pts[i]
+                trailPath.quadTo(m.x, m.y, (m.x + q.x) / 2, (m.y + q.y) / 2)
+            }
+            val f = (sgi + 1f) / segs
+            trailPaint.strokeWidth = density * (2f + 4f * f)
+            trailPaint.color = ColorUtils.setAlphaComponent(if (p.dark) Color.WHITE else Color.rgb(20, 110, 255), (150 * f * trailFade.value).toInt().coerceIn(0, 255))
+            c.drawPath(trailPath, trailPaint)
+        }
     }
 
     // ---- developer overlay ------------------------------------------------------------------

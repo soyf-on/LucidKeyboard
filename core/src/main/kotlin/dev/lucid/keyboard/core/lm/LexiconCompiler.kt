@@ -14,6 +14,12 @@ fun main(args: Array<String>) {
         val ngram = CharNgram.train(tsv.readLines().asSequence().map { it.substringBefore('\t') })
         File(out, ModelBundle.ngramFile(lang)).outputStream().use { ngram.write(it) }
         File(src, "${lang}_replacements.tsv").copyTo(File(out, ModelBundle.replacementsFile(lang)), overwrite = true)
+        val bgTsv = File(src, "${lang}_bigrams.tsv")
+        if (bgTsv.exists()) {
+            val bg = BigramModel.fromTsv(bgTsv, lex)
+            File(out, ModelBundle.bigramsFile(lang)).outputStream().use { bg.write(it) }
+            println("$lang: ${bg.size} word pairs")
+        }
         println("$lang: ${lex.wordCount} words, ${lex.nodeCount} nodes in ${(System.nanoTime() - t0) / 1_000_000} ms")
     }
     File(src, "emoji.tsv").copyTo(File(out, ModelBundle.EMOJI), overwrite = true)

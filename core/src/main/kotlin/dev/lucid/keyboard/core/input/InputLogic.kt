@@ -83,6 +83,8 @@ data class StripState(
     val revertedWord: String? = null,
     /** Set right after an auto-correction: lets the user tap to get the original back. */
     val lastCorrection: Pair<String, String>? = null,
+    /** Next-word predictions when nothing is being typed. */
+    val predictions: List<String> = emptyList(),
 ) {
     val isEmpty get() = literal.isEmpty() && revertedWord == null && lastCorrection == null && suggestions.isEmpty()
 }
@@ -113,6 +115,9 @@ class InputLogic(
         private set
 
     private val word = ArrayList<TypedChar>()
+    /** The composing word came from slide-to-type; [gestureAlternatives] are the other readings. */
+    private var gestureWord = false
+    private var gestureAlternatives: List<String> = emptyList()
     private var wordLayout: KeyboardLayout? = null
     private var prevWord: String? = null
     private var lastCorrection: LastCorrection? = null
@@ -126,6 +131,9 @@ class InputLogic(
     var onLearned: (() -> Unit)? = null
 
     private data class LastCorrection(val original: String, val corrected: String, val separator: String, val typed: List<TypedChar>, val layout: KeyboardLayout?, val prev: String?)
+
+    /** The word before the cursor (context for predictions and gestures). */
+    val previousWord: String? get() = prevWord
 
     val composingText: String get() = word.joinToString("") { it.char.toString() }
     val isComposing get() = word.isNotEmpty()
@@ -166,7 +174,7 @@ class InputLogic(
     }
 
     private fun resetWordState() {
-        word.clear(); wordLayout = null
+        word.clear(); wordLayout = null; gestureWord = false
         lastCorrection = null; revertedWord = null; phantomSpace = false; lastSeparatorWasSpace = false
         decoder.beginWord()
     }
@@ -228,6 +236,7 @@ class InputLogic(
 
     private fun typeChar(t: TypedChar) {
         leaveCommittedState()
+        gestureWord = false
         val lay = layoutForLetters
         val k = lay?.letter(t.char)
         if (t.point != null && lay != null && k != null) decoder.commitTap(lay, t.point.x, t.point.y, k)
@@ -335,7 +344,9 @@ class InputLogic(
     private fun commitWord(correct: Boolean, separator: String) {
         val literal = composingText
         val sentenceStart = word.first().shift == ShiftSource.AUTO
-        val mode = if (correct) correctionMode else CorrectionMode.OFF
+        // Swiped words were already chosen from the dictionary: never auto-correct them.
+        val mode = if (correct && !gestureWord) correctionMode else CorrectionMode.OFF
+        gestureWord = false
         val res = corrector.correct(wordLayout, word, prevWord, mode, sentenceStart, suggestionsWanted = false)
         val final = dutchIJ(res.autoCorrection ?: literal)
         editor.commit(final + separator)
@@ -357,6 +368,14 @@ class InputLogic(
     private fun backspace() {
         phantomSpace = false
         lastSeparatorWasSpace = false
+        if (isComposing && gestureWord) {
+            // Backspace after a swipe removes the whole swiped word.
+            word.clear(); gestureWord = false
+            editor.setComposing(""); editor.finishComposing()
+            decoder.beginWord(); wordLayout = null
+            updateAutoShift()
+            return
+        }
         if (isComposing) {
             word.removeAt(word.lastIndex)
             if (word.isEmpty()) {
@@ -409,6 +428,43 @@ class InputLogic(
         updateAutoShift()
     }
 
+    /**
+     * A slide-to-type word. [candidates] are best first. The word is inserted as composing
+     * text (so alternatives stay one tap away), with a space before it when it follows a word.
+     */
+    fun onGesture(candidates: List<String>) {
+        if (candidates.isEmpty()) return
+        editor.beginBatch()
+        try {
+            if (isComposing) commitWord(correct = true, separator = " ")
+            else {
+                val before = editor.textBeforeCursor(1).orEmpty()
+                if (before.isNotEmpty() && (before[0].isLetterOrDigit() || before[0] in ".,!?;:)\"'")) editor.commit(" ")
+            }
+            flushPending()
+            leaveCommittedState()
+            var w = candidates.first()
+            val src = when (shift) {
+                ShiftState.AUTO -> ShiftSource.AUTO; ShiftState.ONESHOT -> ShiftSource.MANUAL
+                ShiftState.LOCKED -> ShiftSource.CAPS_LOCK; ShiftState.OFF -> ShiftSource.NONE
+            }
+            w = when (shift) {
+                ShiftState.LOCKED -> w.uppercase()
+                ShiftState.AUTO, ShiftState.ONESHOT -> w.replaceFirstChar { it.uppercaseChar() }
+                ShiftState.OFF -> w
+            }
+            if (shift == ShiftState.AUTO || shift == ShiftState.ONESHOT) shift = ShiftState.OFF
+            word.clear()
+            w.forEachIndexed { i, c -> word += TypedChar(c, null, if (i == 0) src else ShiftSource.NONE) }
+            wordLayout = null
+            gestureWord = true
+            gestureAlternatives = candidates.drop(1)
+            decoder.beginWord()
+            for (c in w) decoder.commitLiteral(c)
+            if (fieldInfo.composing) editor.setComposing(composingText) else { editor.commit(composingText); word.clear(); gestureWord = false }
+        } finally { editor.endBatch() }
+    }
+
     /** User tapped a suggestion (or the literal) in the strip. */
     fun onSuggestionPicked(text: String, isLiteral: Boolean) {
         val literal = composingText
@@ -431,7 +487,12 @@ class InputLogic(
             val lc = lastCorrection
             if (isLiteral && lc != null && text == lc.original) { backspace(); return }
             if (isLiteral) return
+            // A next-word prediction: commit it (the space before it is already there).
+            flushPending()
             editor.commit("$text ")
+            pending = PendingWord(text, text, emptyList(), null, prevWord, autoCorrected = false, overrodeCorrection = false)
+            prevWord = text
+            lm.observeWord(text)
         }
         lastCorrection = null; revertedWord = null
         phantomSpace = true
@@ -505,9 +566,16 @@ class InputLogic(
         }
         if (!isComposing) {
             val lc = lastCorrection
-            return StripState(revertedWord = revertedWord, lastCorrection = lc?.let { it.original to it.corrected })
+            val pw = prevWord
+            val preds = if (settings.suggestions && pw != null && revertedWord == null && lc == null && !fieldInfo.literal)
+                lm.predictNext(pw, 3).map { if (shift == ShiftState.AUTO) it.replaceFirstChar { c -> c.uppercaseChar() } else it } else emptyList()
+            return StripState(revertedWord = revertedWord, lastCorrection = lc?.let { it.original to it.corrected }, predictions = preds)
         }
         val literal = composingText
+        if (gestureWord) {
+            val alts = gestureAlternatives.map { a -> if (literal.firstOrNull()?.isUpperCase() == true) a.replaceFirstChar { it.uppercaseChar() } else a }
+            return StripState(literal, null, alts.filter { it != literal }.take(3), true)
+        }
         val res = corrector.correct(wordLayout, word, prevWord, correctionMode, word.first().shift == ShiftSource.AUTO, settings.suggestions)
         val completions = if (settings.suggestions && literal.length >= 1 && literal.all { Alphabet.index(it) >= 0 })
             corrector.completions(literal.lowercase(), 3).map { WordCorrector.restoreCase(it, word) } else emptyList()

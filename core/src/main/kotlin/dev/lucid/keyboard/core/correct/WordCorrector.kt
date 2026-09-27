@@ -110,15 +110,20 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
         var lex = lm.packs[0].lexicon
         var total = lex.totalMass.toDouble()
         var langLog = 0.0
+        // The search keeps a wider pool, scored with unigram frequencies; survivors are then
+        // rescored with the context model, which can promote a word the context favours.
+        val pool = maxOf(limit * 3, 24)
         val results = HashMap<String, Candidate>()
+        val bases = HashMap<String, Double>() // spatial + edit part of the score
         val bestSeen = PriorityQueue<Double>() // min-heap of top scores for pruning
-        fun bar() = if (bestSeen.size < limit) Double.NEGATIVE_INFINITY else bestSeen.peek()
-        fun offer(word: String, score: Double, edits: Int, weight: Double = edits.toDouble()) {
+        fun bar() = if (bestSeen.size < pool) Double.NEGATIVE_INFINITY else bestSeen.peek()
+        fun offer(word: String, score: Double, edits: Int, weight: Double = edits.toDouble(), base: Double = score) {
             val old = results[word]
             if (old != null && old.score >= score) return
             if (lm.user.isBlocked(word)) return
             results[word] = Candidate(word, score, edits, editWeight = weight)
-            bestSeen.add(score); if (bestSeen.size > limit) bestSeen.poll()
+            bases[word] = base
+            bestSeen.add(score); if (bestSeen.size > pool) bestSeen.poll()
         }
         var visits = 0
         fun dfs(s: State) {
@@ -128,7 +133,7 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
             if (bound < bar() - PRUNE_SLACK) return
             if (s.i == n) {
                 val id = lex.wordIdAt(s.node)
-                if (id >= 0) offer(s.text, s.score + LM_WEIGHT * (langLog + ln(lex.weight(id) / total)) + bigram(prev, s.text), s.edits, s.weight)
+                if (id >= 0) offer(s.text, s.score + LM_WEIGHT * (langLog + ln(lex.weight(id) / total)) + bigram(prev, s.text), s.edits, s.weight, s.score)
             }
             lex.forEachChild(s.node) { sym, child ->
                 val c = Alphabet.char(sym)
@@ -164,8 +169,9 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
                 }
             }
             // Extra tap (insertion): skip it.
-            if (s.i < n && s.edits < maxEdits && s.i > 0) {
-                val repeat = Alphabet.index(typed[s.i].char) == Alphabet.index(typed[s.i - 1].char) // "untill"
+            // An extra tap may be anywhere, including the first letter ("rnew" -> "new").
+            if (s.i < n && s.edits < maxEdits && (s.i > 0 || n >= 3)) {
+                val repeat = s.i > 0 && Alphabet.index(typed[s.i].char) == Alphabet.index(typed[s.i - 1].char) // "untill"
                 dfs(State(s.node, s.i + 1, s.score + ins[s.i], s.edits + 1, s.text, s.weight + if (repeat) DOUBLE_WEIGHT else 1.0))
             }
         }
@@ -181,9 +187,13 @@ class WordCorrector(private val lm: LanguageModel, var spatial: SpatialModel) {
             if (lm.inLexicon(w) || w.length !in (n - maxEdits)..(n + maxEdits)) continue
             val sc = alignScore(table, ins, w, maxEdits) ?: continue
             val lp = lm.wordLogProb(w, prev) ?: continue
-            offer(w, sc.first + LM_WEIGHT * lp, sc.second)
+            offer(w, sc.first + LM_WEIGHT * lp, sc.second, base = sc.first)
         }
-        return results.values.sortedByDescending { it.score }.take(limit)
+        // Rescore with context: P(word | previous word), mixed over languages.
+        return results.values.map { c ->
+            val lp = lm.wordLogProb(c.word, prev) ?: return@map c
+            c.copy(score = bases.getValue(c.word) + LM_WEIGHT * lp)
+        }.sortedByDescending { it.score }.take(limit)
     }
 
     /** Restricted Damerau–Levenshtein alignment using spatial costs; returns (score, edits). */

@@ -271,6 +271,12 @@ private fun AppearanceScreen() {
         ToggleRow("Real background blur", if (blurAvailable) "Available on this device right now." else "Not available right now (needs Android 12+, the system blur setting on, and battery saver off).", s.systemBlur, enabled = blurAvailable) { v -> edit(ctx) { putBoolean(Prefs.K.BLUR, v) } }
         ToggleRow("Tint from wallpaper", null, s.wallpaperTint) { v -> edit(ctx) { putBoolean(Prefs.K.WALLPAPER_TINT, v) } }
     }
+    SectionTitle("LAYOUT")
+    GlassCard {
+        ToggleRow("Number row", "Digits above the letters. Letters then hold symbols on long-press (hold m for ?).", s.numberRow) { v -> edit(ctx) { putBoolean(Prefs.K.NUMBER_ROW, v) } }
+        ToggleRow("Symbol hints", "Show the long-press symbol in the corner of each key.", s.digitHints) { v -> edit(ctx) { putBoolean(Prefs.K.DIGIT_HINTS, v) } }
+        ToggleRow("Slide to type", "Glide across the letters without lifting your finger.", s.slideToType) { v -> edit(ctx) { putBoolean(Prefs.K.SLIDE, v) } }
+    }
     SectionTitle("SIZE")
     GlassCard {
         SliderRow("Keyboard height", s.heightScale, 0.8f..1.25f, "${(s.heightScale * 100).toInt()}%") { v -> edit(ctx) { putFloat(Prefs.K.HEIGHT, (v * 20).toInt() / 20f) } }

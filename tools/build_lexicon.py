@@ -150,13 +150,23 @@ def main(lang, scowl_path):
         for a, b, m in sorted(set(reps)):
             fh.write(f"{a}\t{b}\t{m}\n")
 
-    build_emoji()
     print(f"words={len(rows)} valid={sum(1 for r in rows.values() if r[2]=='V')} "
           f"informal={sum(1 for r in rows.values() if r[2]=='F')} replacements={len(reps)}")
     print("dropped typos sample:", dropped_typos[:40])
 
 
 def build_emoji():
+    """emoji.tsv: group <TAB> emoji <TAB> search keywords (English + Dutch, CLDR annotations)."""
+    import json
+    keywords = {}
+    for lang in ("en", "nl"):
+        path = os.path.join(ROOT, "tools", "data", f"cldr_annotations_{lang}.json")
+        ann = json.load(open(path, encoding="utf-8"))["annotations"]["annotations"]
+        for e, v in ann.items():
+            ks = keywords.setdefault(e.replace("\ufe0f", ""), [])
+            for k in v.get("tts", []) + v.get("default", []):
+                if k.lower() not in ks:
+                    ks.append(k.lower())
     src = os.path.join(ROOT, "tools", "data", "emoji-test.txt")
     group = None
     out = []
@@ -172,11 +182,19 @@ def build_emoji():
         cps = [int(c, 16) for c in codes.split()]
         if any(0x1F3FB <= c <= 0x1F3FF for c in cps):
             continue  # skin-tone variants omitted (base emoji only)
-        out.append((group, "".join(chr(c) for c in cps)))
+        e = "".join(chr(c) for c in cps)
+        name = rest.split("#", 1)[1].strip().split(" ", 2)[-1].lower() if "#" in rest else ""
+        ks = keywords.get(e.replace("\ufe0f", ""), [])
+        words = [name] + [k for k in ks if k != name]
+        out.append((group, e, " | ".join(w.replace("\t", " ") for w in words if w)))
     with open(os.path.join(OUT, "emoji.tsv"), "w", encoding="utf-8") as fh:
-        for g, e in out:
-            fh.write(f"{g}\t{e}\n")
+        for g, e, k in out:
+            fh.write(f"{g}\t{e}\t{k}\n")
+    print(f"emoji: {len(out)}, with keywords: {sum(1 for o in out if '|' in o[2])}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    if sys.argv[1] == "emoji":
+        build_emoji()
+    else:
+        main(sys.argv[1], sys.argv[2])

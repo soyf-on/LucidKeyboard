@@ -59,7 +59,22 @@ object GlassTheme {
      * [t] = transparency 0..1. Keys are translucent glass over the (really blurred)
      * backdrop; labels stay fully opaque, and a hairline outline keeps edges readable.
      */
-    fun palette(context: Context, s: Settings, tint: Int?): GlassPalette {
+    /**
+     * [appTint]: when set, the app behind the keyboard probably leaves the area black (see
+     * LucidInputMethodService.backdropTint); the plate becomes an opaque frosted surface
+     * tinted with the app's own colour so the keyboard still looks integrated.
+     */
+    fun palette(context: Context, s: Settings, tint: Int?, appTint: Int? = null): GlassPalette {
+        val base = paletteBase(context, s, tint)
+        if (appTint == null) return base
+        fun mix(c: Int, amt: Float, alpha: Float) = ColorUtils.setAlphaComponent(ColorUtils.blendARGB(c, appTint, amt), (alpha * 255).roundToInt())
+        return base.copy(
+            plateTop = mix(ColorUtils.setAlphaComponent(base.plateTop, 255), if (base.dark) 0.22f else 0.30f, 0.98f),
+            plateBottom = mix(ColorUtils.setAlphaComponent(base.plateBottom, 255), if (base.dark) 0.10f else 0.14f, 0.99f),
+        )
+    }
+
+    private fun paletteBase(context: Context, s: Settings, tint: Int?): GlassPalette {
         val dark = isDark(context, s)
         val t = if (s.reduceTransparency) 0f else s.transparency.coerceIn(0f, 1f)
         val contrast = s.increaseContrast
@@ -79,9 +94,9 @@ object GlassTheme {
                 fnTop = a(tinted(Color.rgb(200, 205, 216), 0.08f), if (contrast) 1f else 0.72f - 0.36f * t),
                 fnBottom = a(tinted(Color.rgb(186, 192, 205), 0.08f), if (contrast) 1f else 0.66f - 0.34f * t),
                 accentTop = Color.rgb(38, 132, 255), accentBottom = Color.rgb(8, 106, 245),
-                rimBright = a(W, 1f), rimFaint = a(W, 0.18f), rimLow = a(W, 0.62f),
-                innerRim = a(W, 0.45f), outline = a(Color.rgb(40, 50, 70), 0.10f),
-                sheen = a(W, 0.40f), shadow = a(Color.rgb(40, 50, 80), 0.07f), glow = a(W, 0.95f),
+                rimBright = a(W, 0.85f), rimFaint = a(W, 0.10f), rimLow = a(W, 0.30f),
+                innerRim = a(W, 0f), outline = a(Color.rgb(40, 50, 70), 0.07f),
+                sheen = a(W, 0.14f), shadow = a(Color.rgb(40, 50, 80), 0.10f), glow = a(W, 0.9f),
                 label = if (contrast) B else Color.rgb(12, 14, 20),
                 labelSecondary = if (contrast) Color.rgb(20, 20, 20) else Color.rgb(84, 90, 104),
                 labelOnAccent = W,
@@ -102,9 +117,9 @@ object GlassTheme {
                 fnTop = a(W, if (contrast) 0.22f else 0.14f - 0.06f * t),
                 fnBottom = a(W, if (contrast) 0.18f else 0.09f - 0.04f * t),
                 accentTop = Color.rgb(44, 140, 255), accentBottom = Color.rgb(14, 110, 245),
-                rimBright = a(W, 0.62f), rimFaint = a(W, 0.06f), rimLow = a(W, 0.28f),
-                innerRim = a(W, 0.12f), outline = a(B, 0.30f),
-                sheen = a(W, 0.10f), shadow = a(B, 0.22f), glow = a(W, 0.40f),
+                rimBright = a(W, 0.34f), rimFaint = a(W, 0.04f), rimLow = a(W, 0.10f),
+                innerRim = a(W, 0f), outline = a(B, 0.18f),
+                sheen = a(W, 0.04f), shadow = a(B, 0.18f), glow = a(W, 0.34f),
                 label = W,
                 labelSecondary = if (contrast) W else Color.rgb(176, 182, 196),
                 labelOnAccent = W,
@@ -168,7 +183,7 @@ class GlassRenderer(private val density: Float) {
             )
         }
 
-    fun radiusFor(r: RectF) = min(r.width(), r.height()) * 0.34f
+    fun radiusFor(r: RectF) = min(r.width(), r.height()) * 0.27f
 
     private fun shadowBitmap(w: Int, h: Int, radius: Float): Bitmap {
         val key = (w.toLong() shl 32) or h.toLong()
@@ -241,17 +256,17 @@ class GlassRenderer(private val density: Float) {
         c.restore()
 
         // 6. inner edge glow (thickness) and 7. specular rim
-        if (p.contrastBorder == null) {
+        if (p.contrastBorder == null && Color.alpha(p.innerRim) > 0) {
             rim.shader = sh.inner
             rim.strokeWidth = density * 2.2f
             tmp2.set(rr); tmp2.inset(density * 1.6f, density * 1.6f)
             c.drawRoundRect(tmp2, max(0f, radius - density * 1.6f), max(0f, radius - density * 1.6f), rim)
             rim.shader = sh.rim
-        } else {
+        } else if (p.contrastBorder != null) {
             rim.shader = null; rim.color = p.contrastBorder
-        }
-        rim.strokeWidth = density * 1.0f
-        tmp2.set(rr); tmp2.inset(density * 0.5f, density * 0.5f)
+        } else rim.shader = sh.rim
+        rim.strokeWidth = density * 0.8f
+        tmp2.set(rr); tmp2.inset(density * 0.4f, density * 0.4f)
         c.drawRoundRect(tmp2, radius - density * 0.5f, radius - density * 0.5f, rim)
     }
 

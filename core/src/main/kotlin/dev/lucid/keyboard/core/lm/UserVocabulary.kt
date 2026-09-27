@@ -85,6 +85,11 @@ class UserVocabulary(data: UserVocabularyData = UserVocabularyData()) {
     fun wasRejected(literal: String, correction: String) =
         rejected[literal.lowercase()]?.contains(correction.lowercase()) == true
     fun bigramCount(prev: String, next: String) = bigrams["${prev.lowercase()} ${next.lowercase()}"] ?: 0
+    /** The user's own continuations of [prev] with counts (read-only scan; ≤ MAX_BIGRAMS entries). */
+    fun bigramsAfter(prev: String): List<Pair<String, Int>> {
+        val key = prev.lowercase() + " "
+        return bigrams.entries.filter { it.key.startsWith(key) }.map { it.key.substring(key.length) to it.value }
+    }
     fun activeWords(): List<UserWord> = words.values.filter { isActive(it) }
 
     /** Cased form the user taught us, e.g. "McKenzie". */

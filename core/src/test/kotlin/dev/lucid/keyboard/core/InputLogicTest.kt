@@ -275,6 +275,21 @@ class InputLogicTest {
         assertTrue(v.allWords().isEmpty())
     }
 
+    @Test fun `context picks the word that fits - this rnew becomes this new`() {
+        val e = engine()
+        e.typeCentered("im testing out this rnew")
+        val st = e.logic.stripState()
+        assertEquals("new", st.pendingCorrection ?: st.suggestions.firstOrNull())
+    }
+
+    @Test fun `next word predictions after a space`() {
+        val e = engine()
+        e.typeCentered("thank ")
+        assertTrue(e.logic.stripState().predictions.toString(), "you" in e.logic.stripState().predictions)
+        e.logic.onSuggestionPicked("you", isLiteral = false)
+        assertEquals("Thank you ", e.editor.text)
+    }
+
     @Test fun `bar punctuation attaches to the previous word`() {
         val e = engine()
         e.typeCentered("hello ")

@@ -12,5 +12,6 @@ object Dimensions {
         vGap = (if (landscape) 7f else 11f) * density * s.spacingScale,
         sidePadding = 3f * density, topPadding = 4f * density, bottomPadding = 4f * density,
         extraKey = extraKey,
+        numberRow = s.numberRow,
     )
 }

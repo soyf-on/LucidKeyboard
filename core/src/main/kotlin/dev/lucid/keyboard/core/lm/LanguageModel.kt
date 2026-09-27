@@ -11,6 +11,8 @@ class LanguagePack(
     val ngram: CharNgram,
     /** Contraction fixes ("dont" -> "don't"): from -> (to, weakest mode name). */
     val replacements: Map<String, Pair<String, String>> = emptyMap(),
+    /** Next-word statistics; null if not bundled for this language. */
+    val bigrams: BigramModel? = null,
 )
 
 /**
@@ -116,11 +118,23 @@ class LanguageModel(packs: List<LanguagePack>, val user: UserVocabulary) {
         return if (id < 0) 0.0 else lex.weight(id).toDouble() / lex.totalMass
     }
 
+    /** P(word | prev) under language [i]: bigram-interpolated when context is available. */
+    fun packContextProb(i: Int, word: String, prev: String?): Double {
+        val lex = packs[i].lexicon
+        val id = lex.wordId(word)
+        if (id < 0) return 0.0
+        val uni = lex.weight(id).toDouble() / lex.totalMass
+        val bg = packs[i].bigrams ?: return uni
+        if (prev == null) return uni
+        val pid = lex.wordId(prev)
+        return if (pid < 0) uni else bg.prob(pid, id, uni)
+    }
+
     /** log P(word | prev) mixed over languages, with a light personal-bigram boost; null for unknown words. */
     fun wordLogProb(word: String, prev: String? = null): Double? {
         if (user.isBlocked(word)) return null
         var p = 0.0
-        for (i in packs.indices) p += languageWeights[i] * packProb(i, word)
+        for (i in packs.indices) p += languageWeights[i] * packContextProb(i, word, prev)
         val u = user.weight(word)
         if (u > 0f) p += u.toDouble() / packs[0].lexicon.totalMass
         if (p <= 0.0) return null
@@ -130,6 +144,30 @@ class LanguageModel(packs: List<LanguagePack>, val user: UserVocabulary) {
             if (bc > 0) lp += ln(1.0 + BIGRAM_BOOST * bc)
         }
         return lp
+    }
+
+    /**
+     * Likely next words after [prev] (cased), from the bundled word pairs of each active
+     * language weighted by the language estimate, plus the user's own word pairs.
+     */
+    fun predictNext(prev: String, k: Int = 3): List<String> {
+        val scores = HashMap<String, Double>()
+        for ((i, pack) in packs.withIndex()) {
+            val bg = pack.bigrams ?: continue
+            val pid = pack.lexicon.wordId(prev)
+            if (pid < 0) continue
+            for ((id, p) in bg.top(pid, 12)) {
+                val w = pack.lexicon.cased(id)
+                if (user.isBlocked(w)) continue
+                scores.merge(w, languageWeights[i] * p) { a, b -> a + b }
+            }
+        }
+        for ((next, c) in user.bigramsAfter(prev)) {
+            if (user.isBlocked(next)) continue
+            val w = casedForm(next)
+            scores.merge(w, 0.08 * c) { a, b -> a + b }
+        }
+        return scores.entries.sortedByDescending { it.value }.map { it.key }.take(k)
     }
 
     /** Character-model log probability of an unknown string, mixed over languages. */

@@ -76,6 +76,8 @@ data class LayoutParams(
     val sidePadding: Float,
     val topPadding: Float,
     val bottomPadding: Float,
+    /** A row of digits above the letters (letters then hold symbols on long-press). */
+    val numberRow: Boolean = false,
     /** Extra key beside space for URL ("/") or e-mail ("@") fields; null for normal text. */
     val extraKey: String? = null,
 )
@@ -103,35 +105,65 @@ object Layouts {
         'z' to listOf("ž", "ź", "ż"),
     )
 
+    /** Symbol on long-press of each letter (first alternate, so hold-and-release types it). */
+    val LETTER_SYMBOLS: Map<Char, String> = mapOf(
+        'q' to "%", 'w' to "^", 'e' to "~", 'r' to "|", 't' to "[", 'y' to "]", 'u' to "<", 'i' to ">", 'o' to "{", 'p' to "}",
+        'a' to "@", 's' to "#", 'd' to "&", 'f' to "*", 'g' to "-", 'h' to "+", 'j' to "=", 'k' to "(", 'l' to ")",
+        'z' to "_", 'x' to "$", 'c' to "\"", 'v' to "'", 'b' to ":", 'n' to "!", 'm' to "?",
+    )
+    private val DIGIT_ALTS = mapOf(
+        '1' to listOf("¹", "½", "⅓", "¼"), '2' to listOf("²", "⅔"), '3' to listOf("³", "¾"), '4' to listOf("⁴"),
+        '5' to listOf("⁵"), '0' to listOf("°", "∅"),
+    )
+    const val NUMBER_ROW_SCALE = 0.8f
+
     fun qwerty(p: LayoutParams): KeyboardLayout {
         val usable = p.width - 2 * p.sidePadding
         val unit = usable / 10f
         val keyW = unit - p.hGap
         val keys = ArrayList<Key>()
-        fun rowY(r: Int) = p.topPadding + r * (p.rowHeight + p.vGap) + p.vGap / 2f
+        var y = p.topPadding + p.vGap / 2f
+        var row = 0
 
-        // Row 0: letters with digit long-press.
+        if (p.numberRow) {
+            val h = p.rowHeight * NUMBER_ROW_SCALE
+            TOP_DIGITS.forEachIndexed { i, c ->
+                keys += Key(KeyKind.CHAR, c.toString(), c.toString(), p.sidePadding + i * unit + p.hGap / 2f, y, keyW, h, row, DIGIT_ALTS[c].orEmpty())
+            }
+            y += h + p.vGap; row++
+        }
+        // With a number row, the top letters hold symbols; without one, they hold the digits.
+        fun alts(c: Char, i: Int?) = listOfNotNull(if (i != null && !p.numberRow) TOP_DIGITS[i].toString() else LETTER_SYMBOLS[c]) + ACCENTS[c].orEmpty()
         TOP.forEachIndexed { i, c ->
-            val x = p.sidePadding + i * unit + p.hGap / 2f
-            keys += Key(KeyKind.LETTER, c.toString(), c.toString(), x, rowY(0), keyW, p.rowHeight, 0,
-                listOf(TOP_DIGITS[i].toString()) + ACCENTS[c].orEmpty())
+            keys += Key(KeyKind.LETTER, c.toString(), c.toString(), p.sidePadding + i * unit + p.hGap / 2f, y, keyW, p.rowHeight, row, alts(c, i))
         }
-        // Row 1: offset by half a key.
+        y += p.rowHeight + p.vGap; row++
+        // Middle row: offset by half a key.
         MID.forEachIndexed { i, c ->
-            val x = p.sidePadding + (i + 0.5f) * unit + p.hGap / 2f
-            keys += Key(KeyKind.LETTER, c.toString(), c.toString(), x, rowY(1), keyW, p.rowHeight, 1, ACCENTS[c].orEmpty())
+            keys += Key(KeyKind.LETTER, c.toString(), c.toString(), p.sidePadding + (i + 0.5f) * unit + p.hGap / 2f, y, keyW, p.rowHeight, row, alts(c, null))
         }
-        // Row 2: shift, 7 letters (offset 1.5 units), backspace.
+        y += p.rowHeight + p.vGap; row++
+        // Bottom letter row: shift, 7 letters (offset 1.5 units), backspace.
         val fnW = 1.5f * unit - p.hGap - unit * 0.12f
-        keys += Key(KeyKind.SHIFT, "", "shift", p.sidePadding + p.hGap / 2f, rowY(2), fnW, p.rowHeight, 2)
+        keys += Key(KeyKind.SHIFT, "", "shift", p.sidePadding + p.hGap / 2f, y, fnW, p.rowHeight, row)
         BOT.forEachIndexed { i, c ->
-            val x = p.sidePadding + (i + 1.5f) * unit + p.hGap / 2f
-            keys += Key(KeyKind.LETTER, c.toString(), c.toString(), x, rowY(2), keyW, p.rowHeight, 2, ACCENTS[c].orEmpty())
+            keys += Key(KeyKind.LETTER, c.toString(), c.toString(), p.sidePadding + (i + 1.5f) * unit + p.hGap / 2f, y, keyW, p.rowHeight, row, alts(c, null))
         }
-        keys += Key(KeyKind.BACKSPACE, "", "delete", p.width - p.sidePadding - p.hGap / 2f - fnW, rowY(2), fnW, p.rowHeight, 2)
+        keys += Key(KeyKind.BACKSPACE, "", "delete", p.width - p.sidePadding - p.hGap / 2f - fnW, y, fnW, p.rowHeight, row)
+        y += p.rowHeight + p.vGap; row++
 
-        bottomRow(p, unit, rowY(3), keys, KeyKind.TO_SYMBOLS, "123")
+        bottomRow(p, unit, y, keys, KeyKind.TO_SYMBOLS, "123", row)
         return finish("qwerty", keys, p, unit, keyW)
+    }
+
+    /**
+     * Params for 4-row pages (symbols, number pad) that fill the same height as the
+     * letters page, so switching pages never makes the keyboard jump.
+     */
+    private fun fillHeight(p: LayoutParams): LayoutParams {
+        if (!p.numberRow) return p
+        val inner = totalHeight(p) - p.topPadding - p.bottomPadding
+        return p.copy(rowHeight = inner / 4f - p.vGap, numberRow = false)
     }
 
     /** Long-press on the period key: comma first (hold-and-release types it), then punctuation and emoji. */
@@ -141,7 +173,7 @@ object Layouts {
      * Clean bottom row, like iOS: mode key, space, period, return. Emoji, comma and the
      * keyboard switcher live on long-presses and in the suggestion bar instead.
      */
-    private fun bottomRow(p: LayoutParams, unit: Float, y: Float, keys: MutableList<Key>, modeKind: KeyKind, modeLabel: String) {
+    private fun bottomRow(p: LayoutParams, unit: Float, y: Float, keys: MutableList<Key>, modeKind: KeyKind, modeLabel: String, row: Int = 3) {
         data class Spec(val kind: KeyKind, val out: String, val label: String, val units: Float, val lp: List<String> = emptyList())
         val specs = ArrayList<Spec>()
         specs += Spec(modeKind, "", modeLabel, 1.5f)
@@ -152,12 +184,13 @@ object Layouts {
         specs += Spec(KeyKind.ENTER, "\n", "return", 2.0f)
         var x = p.sidePadding
         for (s in specs) {
-            keys += Key(s.kind, s.out, s.label, x + p.hGap / 2f, y, s.units * unit - p.hGap, p.rowHeight, 3, s.lp)
+            keys += Key(s.kind, s.out, s.label, x + p.hGap / 2f, y, s.units * unit - p.hGap, p.rowHeight, row, s.lp)
             x += s.units * unit
         }
     }
 
-    fun symbols(p: LayoutParams, page: Int): KeyboardLayout {
+    fun symbols(p0: LayoutParams, page: Int): KeyboardLayout {
+        val p = fillHeight(p0)
         val usable = p.width - 2 * p.sidePadding
         val unit = usable / 10f
         val keyW = unit - p.hGap
@@ -188,7 +221,8 @@ object Layouts {
     }
 
     /** Numeric / phone pad for number, phone and date fields. */
-    fun numpad(p: LayoutParams, phone: Boolean): KeyboardLayout {
+    fun numpad(p0: LayoutParams, phone: Boolean): KeyboardLayout {
+        val p = fillHeight(p0)
         val usable = p.width - 2 * p.sidePadding
         val unit = usable / 4f
         val keys = ArrayList<Key>()
@@ -216,8 +250,8 @@ object Layouts {
         return finish(if (phone) "phone" else "numpad", keys, p, unit, unit - p.hGap)
     }
 
-    fun totalHeight(p: LayoutParams, rows: Int = 4) =
-        p.topPadding + rows * (p.rowHeight + p.vGap) + p.bottomPadding
+    fun totalHeight(p: LayoutParams) =
+        p.topPadding + 4 * (p.rowHeight + p.vGap) + (if (p.numberRow) p.rowHeight * NUMBER_ROW_SCALE + p.vGap else 0f) + p.bottomPadding
 
     private fun finish(name: String, keys: List<Key>, p: LayoutParams, unit: Float, keyW: Float): KeyboardLayout {
         val height = totalHeight(p)
@@ -228,7 +262,7 @@ object Layouts {
         for ((r, rowKeys) in rows) {
             val sorted = rowKeys.sortedBy { it.x }
             val top = if (r == 0) 0f else sorted.first().y - p.vGap / 2f
-            val bottom = if (r == maxRow) height else sorted.first().y + p.rowHeight + p.vGap / 2f
+            val bottom = if (r == maxRow) height else sorted.first().y + sorted.first().h + p.vGap / 2f
             sorted.forEachIndexed { i, k ->
                 k.hitTop = top
                 k.hitBottom = bottom

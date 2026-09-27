@@ -121,4 +121,26 @@ class TouchDecoderTest {
         val di = 'd' - 'a'; val si = 's' - 'a'
         assertTrue("P(d)=${prior[di]} P(s)=${prior[si]}", prior[di] > 5 * prior[si])
     }
+
+    @Test fun `number row layout keeps guarantees and every page has the same height`() {
+        val p = Fixtures.params.copy(numberRow = true)
+        val lay = dev.lucid.keyboard.core.geometry.Layouts.qwerty(p)
+        val sym = dev.lucid.keyboard.core.geometry.Layouts.symbols(p, 0)
+        val num = dev.lucid.keyboard.core.geometry.Layouts.numpad(p, false)
+        assertEquals(lay.height, sym.height, 0.5f)
+        assertEquals(lay.height, num.height, 0.5f)
+        assertEquals('?', lay.letter('m')!!.longPress.first().single())
+        assertEquals("1", lay.keys.first { it.row == 0 }.output)
+        val d = TouchDecoder(Fixtures.lm(), dev.lucid.keyboard.core.touch.SpatialModel())
+        d.settings = DecoderSettings(strength = 1.0)
+        d.beginWord()
+        for (c in "keyboar") { val k = lay.letter(c)!!; d.commitTap(lay, k.cx, k.cy, k) }
+        for (k in lay.decodableKeys) assertEquals(k, d.decide(lay, k.cx, k.cy).key)
+        var y = 0f
+        while (y < lay.height) { var x = 0f
+            while (x < lay.width) { val dec = d.decide(lay, x, y)
+                if (dec.overrodeGeometry) assertTrue(d.reachOf(lay, dec.key, x, y) <= TouchDecoder.MAX_REACH + 1e-6)
+                x += 8f }
+            y += 8f }
+    }
 }

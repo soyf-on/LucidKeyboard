@@ -11,6 +11,7 @@ object ModelBundle {
     fun lexiconFile(lang: String) = "${lang}_lexicon.bin"
     fun ngramFile(lang: String) = "${lang}_charlm.bin"
     fun replacementsFile(lang: String) = "${lang}_replacements.tsv"
+    fun bigramsFile(lang: String) = "${lang}_bigrams.bin"
 
     fun loadPack(lang: String, open: (String) -> InputStream): LanguagePack {
         val lex = open(lexiconFile(lang)).use { Lexicon.read(it) }
@@ -20,6 +21,7 @@ object ModelBundle {
                 lines.mapNotNull { l -> l.split('\t').takeIf { it.size == 3 }?.let { it[0] to (it[1] to it[2]) } }.toMap()
             }
         }.getOrDefault(emptyMap())
-        return LanguagePack(lang, lex, ng, reps)
+        val bg = runCatching { open(bigramsFile(lang)).use { BigramModel.read(it) } }.getOrNull()
+        return LanguagePack(lang, lex, ng, reps, bg)
     }
 }

@@ -39,7 +39,10 @@ data class Settings(
     val haptics: Haptics = Haptics.LIGHT,
     val sound: Boolean = false,
     val wallpaperTint: Boolean = true,
+    /** Small symbol hints on letter keys showing what long-press types. */
     val digitHints: Boolean = false,
+    val numberRow: Boolean = true,
+    val slideToType: Boolean = true,
     /** Active languages, typed together without switching. */
     val languages: Set<String> = setOf("en", "nl"),
 ) {
@@ -84,6 +87,8 @@ class Prefs(context: Context) {
         sound = sp.getBoolean(K.SOUND, false),
         wallpaperTint = sp.getBoolean(K.WALLPAPER_TINT, true),
         digitHints = sp.getBoolean(K.DIGIT_HINTS, false),
+        numberRow = sp.getBoolean(K.NUMBER_ROW, true),
+        slideToType = sp.getBoolean(K.SLIDE, true),
         languages = (sp.getStringSet(K.LANGUAGES, null) ?: setOf("en", "nl")).ifEmpty { setOf("en") },
     )
 
@@ -99,6 +104,8 @@ class Prefs(context: Context) {
         const val CONTRAST = "contrast"; const val SIMPLE = "simple_rendering"; const val POPUPS = "key_popups"
         const val HAPTICS = "haptics"; const val SOUND = "sound"; const val WALLPAPER_TINT = "wallpaper_tint"
         const val RECENT_EMOJI = "recent_emoji"; const val CALIBRATED = "calibrated"
-        const val DIGIT_HINTS = "digit_hints"; const val LANGUAGES = "languages"
+        const val DIGIT_HINTS = "digit_hints"; const val LANGUAGES = "languages"; const val NUMBER_ROW = "number_row"; const val SLIDE = "slide_to_type"
+        /** Per-app keyboard background: "backdrop_<package>" = AUTO | CLEAR | TINTED. */
+        fun backdrop(pkg: String) = "backdrop_$pkg"
     }
 }

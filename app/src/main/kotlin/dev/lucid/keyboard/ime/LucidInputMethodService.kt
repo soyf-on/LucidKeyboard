@@ -45,6 +45,7 @@ import dev.lucid.keyboard.data.Prefs
 import dev.lucid.keyboard.data.Settings
 import dev.lucid.keyboard.settings.SettingsActivity
 import dev.lucid.keyboard.ui.Dimensions
+import dev.lucid.keyboard.ui.EmojiData
 import dev.lucid.keyboard.ui.EmojiPanel
 import dev.lucid.keyboard.ui.GlassRenderer
 import dev.lucid.keyboard.ui.GlassTheme
@@ -61,6 +62,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     private lateinit var settings: Settings
     private val editor = EditorBridge(this)
     private var logic: InputLogic? = null
+    private var gestures: dev.lucid.keyboard.core.gesture.GestureDecoder? = null
     private var landscape = false
 
     private lateinit var renderer: GlassRenderer
@@ -74,6 +76,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     private var mode = Mode.LETTERS
     private var quickOpen = false
     private var blurActive = false
+    private var tintedBackdrop = false
     private val main = Handler(Looper.getMainLooper())
     private val stripUpdate = Runnable { updateStrip() }
     private val regionUpdate = Runnable { keyboard?.refreshRegionMap() }
@@ -94,6 +97,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
                 it.settings = settings.typing()
                 it.onLearned = { persist() }
             }
+            gestures = dev.lucid.keyboard.core.gesture.GestureDecoder(eng.lm).also { g -> Thread({ g.warmUp() }, "lucid-gesture").start() }
         } else Log.e(LucidApp.TAG, "models unavailable; keyboard runs with visible-key decoding only")
     }
 
@@ -160,7 +164,15 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         }
     }
 
+    /** Pages cross-fade with a slight settle instead of cutting (skipped with reduce motion). */
+    private fun animateIn(v: View) {
+        if (settings.reduceMotion) return
+        v.alpha = 0f; v.scaleX = 0.985f; v.scaleY = 0.985f
+        v.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220).setInterpolator(dev.lucid.keyboard.ui.SmoothEase).start()
+    }
+
     private fun showMode(m: Mode) {
+        val changed = m != mode
         mode = m
         val c = content ?: return
         val kv = keyboard ?: return
@@ -170,32 +182,97 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         if (m == Mode.EMOJI) {
             val h = keyboardHeight()
             val recent = app.prefs.sp.getString(Prefs.K.RECENT_EMOJI, "")!!.split(' ').filter { it.isNotEmpty() }
-            c.addView(EmojiPanel(this, renderer, emojiGroups(), recent, this), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, h))
+            val panel = EmojiPanel(this, renderer, emojiData(), recent, this, h) { l ->
+                KeyboardView(this, renderer).also { kv ->
+                    kv.listener = l
+                    kv.keyPopups = settings.keyPopups
+                    val w = content?.width?.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+                    val p = Dimensions.params(w.toFloat(), resources.displayMetrics.density, landscape, settings.copy(numberRow = false))
+                    kv.layout = Layouts.qwerty(p.copy(rowHeight = p.rowHeight * 0.82f))
+                    kv.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Layouts.totalHeight(p.copy(rowHeight = p.rowHeight * 0.82f)).toInt())
+                }
+            }
+            c.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            animateIn(panel)
             return
         }
         kv.layout = buildLayout()
         kv.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, keyboardHeight())
         c.addView(kv)
+        if (changed) animateIn(kv)
         updateKeyState()
     }
 
-    private var emojiCache: LinkedHashMap<String, List<String>>? = null
-    private fun emojiGroups(): LinkedHashMap<String, List<String>> = emojiCache ?: LinkedHashMap<String, List<String>>().also { m ->
+    private var emojiCache: EmojiData? = null
+    private fun emojiData(): EmojiData = emojiCache ?: run {
+        val groups = LinkedHashMap<String, List<String>>(); val kw = HashMap<String, String>()
         assets.open("emoji.tsv").bufferedReader().useLines { lines ->
-            for (l in lines) { val t = l.split('\t'); if (t.size == 2) m.getOrPut(t[0]) { ArrayList() }.let { (it as ArrayList).add(t[1]) } }
+            for (l in lines) {
+                val t = l.split('\t')
+                if (t.size < 2) continue
+                (groups.getOrPut(t[0]) { ArrayList() } as ArrayList).add(t[1])
+                if (t.size > 2) kw[t[1]] = t[2]
+            }
         }
-        emojiCache = m
+        EmojiData(groups, kw).also { emojiCache = it }
     }
+
+    /** Package of the app being typed into (for the per-app background choice). */
+    private var clientPackage: String? = null
+    private val appColorCache = HashMap<String, Int?>()
+
+    enum class Backdrop { AUTO, CLEAR, TINTED }
+
+    fun backdropMode(pkg: String?): Backdrop =
+        pkg?.let { runCatching { Backdrop.valueOf(app.prefs.sp.getString(Prefs.K.backdrop(it), "AUTO")!!) }.getOrNull() } ?: Backdrop.AUTO
+
+    /**
+     * Whether (and with which colour) to replace the see-through glass with a tinted
+     * surface. The keyboard cannot see the pixels behind it, so AUTO uses how the app is
+     * built: apps targeting Android 15+ are drawn edge-to-edge and put their own content
+     * or background behind the keyboard (keep clear glass); older apps are usually
+     * resized above it, leaving black behind (tint). The user's per-app choice wins.
+     */
+    private fun backdropTint(): Int? {
+        val pkg = clientPackage ?: return null
+        val mode = backdropMode(pkg)
+        if (mode == Backdrop.CLEAR) return null
+        val target = runCatching { packageManager.getApplicationInfo(pkg, 0).targetSdkVersion }.getOrNull()
+        Log.d(LucidApp.TAG, "backdrop: $pkg mode=$mode targetSdk=$target")
+        if (mode == Backdrop.AUTO && (target == null || target >= 35)) return null
+        // If the app's icon isn't visible to us, a neutral frost still hides a black gap.
+        return appColorCache.getOrPut(pkg) { appColor(pkg) } ?: if (GlassTheme.isDark(this, settings)) Color.rgb(40, 42, 50) else Color.rgb(214, 218, 228)
+    }
+
+    /** A representative colour of the app: the most saturated average of its icon. */
+    private fun appColor(pkg: String): Int? = runCatching {
+        val icon = packageManager.getApplicationIcon(pkg)
+        val bmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888)
+        icon.setBounds(0, 0, 24, 24); icon.draw(Canvas(bmp))
+        var r = 0.0; var g = 0.0; var b = 0.0; var wsum = 0.0
+        val hsv = FloatArray(3)
+        for (y in 0 until 24) for (x in 0 until 24) {
+            val c = bmp.getPixel(x, y)
+            if (Color.alpha(c) < 128) continue
+            Color.colorToHSV(c, hsv)
+            val w = 0.15 + hsv[1] * hsv[2] // favour colourful pixels over white/black
+            r += Color.red(c) * w; g += Color.green(c) * w; b += Color.blue(c) * w; wsum += w
+        }
+        if (wsum == 0.0) null else Color.rgb((r / wsum).toInt(), (g / wsum).toInt(), (b / wsum).toInt())
+    }.getOrNull()
 
     private fun applyAppearance() {
         val tint = GlassTheme.wallpaperColor(this)
-        renderer.palette = GlassTheme.palette(this, settings, tint)
+        val appTint = backdropTint()
+        renderer.palette = GlassTheme.palette(this, settings, tint, appTint)
+        tintedBackdrop = appTint != null
         renderer.simple = settings.simpleRendering
         renderer.reduceMotion = settings.reduceMotion
         keyboard?.apply {
             keyPopups = settings.keyPopups && !settings.reduceMotion
             overlayEnabled = settings.devOverlay
             showDigitHints = settings.digitHints
+            gestureTyping = settings.slideToType && logic != null
         }
         applyWindowBlur()
         root?.invalidate(); keyboard?.invalidate(); strip?.invalidate()
@@ -218,7 +295,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
             if (!blurListenerRegistered) {
                 wm.addCrossWindowBlurEnabledListener(Executor { it.run() }, blurListener); blurListenerRegistered = true
             }
-            val want = settings.systemBlur && !settings.reduceTransparency && !settings.simpleRendering
+            val want = settings.systemBlur && !settings.reduceTransparency && !settings.simpleRendering && !tintedBackdrop
             if (want && wm.isCrossWindowBlurEnabled) {
                 val p = renderer.palette!!
                 w.setBackgroundDrawable(GradientDrawable().apply {
@@ -247,6 +324,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         settings = app.prefs.load()
         logic?.settings = settings.typing()
         editor.reset(info)
+        clientPackage = info.packageName
         applyLanguages()
         val variation = info.inputType and android.text.InputType.TYPE_MASK_VARIATION
         extraKey = when (variation) {
@@ -394,6 +472,17 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     override fun onKeyDownFeedback(key: Key) = feedback(tick = false, key = key)
 
+    override fun onGesture(path: List<TouchPoint>) {
+        val lay = keyboard?.layout ?: return
+        val l = logic ?: return
+        val prev = if (l.isComposing) l.composingText.lowercase() else l.previousWord
+        val results = gestures?.decode(lay, path, prev) ?: return
+        if (results.isEmpty()) return
+        l.onGesture(results.map { it.word })
+        feedback(tick = true)
+        afterEdit()
+    }
+
     private fun afterEdit() {
         updateKeyState()
         scheduleStrip()
@@ -468,10 +557,12 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         bindQuick(qp)
         c.removeAllViews()
         c.addView(qp, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, keyboardHeight()))
+        animateIn(qp)
     }
 
     private fun bindQuick(qp: QuickPanel? = content?.getChildAt(0) as? QuickPanel) {
-        qp?.bind(settings.correction, settings.adaptive, settings.suggestions, settings.autoCap, settings.privateMode, settings.languages, renderer.palette!!.label)
+        qp?.bind(settings.correction, settings.adaptive, settings.suggestions, settings.autoCap, settings.privateMode, settings.languages,
+            backdropMode(clientPackage).name, renderer.palette!!.label)
     }
 
     override fun setCorrection(m: CorrectionMode) = app.prefs.edit { putString(Prefs.K.CORRECTION, m.name) }
@@ -479,6 +570,11 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun toggleSuggestions() = app.prefs.edit { putBoolean(Prefs.K.SUGGESTIONS, !settings.suggestions) }
     override fun toggleAutoCap() = app.prefs.edit { putBoolean(Prefs.K.AUTOCAP, !settings.autoCap) }
     override fun togglePrivate() = app.prefs.edit { putBoolean(Prefs.K.PRIVATE, !settings.privateMode) }
+    override fun setBackdrop(mode: String) {
+        val pkg = clientPackage ?: return
+        app.prefs.edit { putString(Prefs.K.backdrop(pkg), mode) }
+    }
+
     override fun toggleLanguage(code: String) {
         val next = if (code in settings.languages) settings.languages - code else settings.languages + code
         if (next.isEmpty()) return // at least one language stays on
@@ -492,7 +588,12 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         val codes = eng.lm.packs.map { it.code.uppercase() }
         keyboard?.spaceLabel = if (codes.size > 1) codes.joinToString(" · ") else ""
     }
-    override fun closePanel() { quickOpen = false; strip?.quickPanelOpen = false; showMode(if (mode == Mode.EMOJI) Mode.LETTERS else mode) }
+    override fun closePanel() {
+        quickOpen = false; strip?.quickPanelOpen = false
+        val target = if (mode == Mode.EMOJI) Mode.LETTERS else mode
+        mode = Mode.EMOJI // force a transition back to the keys
+        showMode(target)
+    }
 
     override fun openSettings(page: String) {
         startActivity(Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("page", page))
@@ -522,7 +623,9 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         strip?.privateMode = settings.privateMode
         applyLanguages()
         applyAppearance()
-        if (old.heightScale != settings.heightScale || old.spacingScale != settings.spacingScale) { if (!quickOpen && mode != Mode.EMOJI) showMode(mode) }
+        if (old.heightScale != settings.heightScale || old.spacingScale != settings.spacingScale || old.numberRow != settings.numberRow) {
+            if (!quickOpen && mode != Mode.EMOJI) showMode(mode)
+        }
         if (quickOpen) bindQuick()
         scheduleStrip()
     }

@@ -147,13 +147,13 @@ Comparing the Fixed and Adaptive rows shows whether the two stages amplify each 
 | Decoder | Autocorrect | Words | Word accuracy | False corrections | Words fixed by autocorrect |
 |---|---|---:|---:|---:|---:|
 | Fixed | off | 846 | 48.2% | 0 | 0 |
-| Fixed | gentle | 846 | 79.4% | 0 | 264 |
-| Fixed | balanced | 846 | 82.5% | 0 | 290 |
-| Fixed | strong | 846 | 85.1% | 0 | 312 |
+| Fixed | gentle | 846 | 79.7% | 0 | 266 |
+| Fixed | balanced | 846 | 82.0% | 0 | 286 |
+| Fixed | strong | 846 | 88.8% | 0 | 343 |
 | Adaptive 0.7 | off | 846 | 63.4% | 0 | 0 |
-| Adaptive 0.7 | gentle | 846 | 83.0% | 0 | 166 |
-| Adaptive 0.7 | balanced | 846 | 85.5% | 0 | 187 |
-| Adaptive 0.7 | strong | 846 | 86.9% | 0 | 199 |
+| Adaptive 0.7 | gentle | 846 | 83.1% | 0 | 167 |
+| Adaptive 0.7 | balanced | 846 | 85.0% | 0 | 183 |
+| Adaptive 0.7 | strong | 846 | 90.3% | 0 | 228 |
 
 Slang and names (the words themselves, 3 seeds, everyday typist):
 
@@ -184,7 +184,7 @@ Everyday typist, 3 seeds. The key column is *false corrections*: correctly typed
 | Mixed NL/EN | Adaptive 0.7 | off | 231 | 90.5% | 0 | 0 |
 | Mixed NL/EN | Adaptive 0.7 | balanced | 231 | 94.8% | 0 | 10 |
 | English | Fixed | off | 456 | 82.2% | 0 | 0 |
-| English | Fixed | balanced | 456 | 94.7% | 0 | 57 |
+| English | Fixed | balanced | 456 | 94.5% | 0 | 56 |
 | English | Adaptive 0.7 | off | 456 | 91.0% | 0 | 0 |
 | English | Adaptive 0.7 | balanced | 456 | 95.6% | 0 | 21 |
 
