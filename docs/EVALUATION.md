@@ -22,25 +22,25 @@ real-world typing. Use the in-app Practice screen to compare modes on your own t
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 16410 | 4.34% | 0 | 0 |
-| Adaptive 0.4 | 16410 | 2.82% | 17 | 267 |
-| Adaptive 0.7 (default) | 16410 | 2.18% | 24 | 380 |
-| Adaptive 1.0 | 16410 | 1.88% | 43 | 447 |
+| Adaptive 0.4 | 16410 | 2.81% | 17 | 269 |
+| Adaptive 0.7 (default) | 16410 | 2.17% | 24 | 381 |
+| Adaptive 1.0 | 16410 | 1.88% | 43 | 448 |
 
 **Fast / sloppy typist (σx=0.32, σy=0.28, downward bias 0.08)**
 
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 16410 | 14.38% | 0 | 0 |
-| Adaptive 0.4 | 16410 | 11.24% | 50 | 566 |
-| Adaptive 0.7 (default) | 16410 | 9.59% | 73 | 860 |
-| Adaptive 1.0 | 16410 | 8.32% | 103 | 1097 |
+| Adaptive 0.4 | 16410 | 11.29% | 50 | 558 |
+| Adaptive 0.7 (default) | 16410 | 9.60% | 72 | 856 |
+| Adaptive 1.0 | 16410 | 8.34% | 102 | 1094 |
 
 **Careful typist (σx=0.17, σy=0.15)**
 
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 16410 | 0.37% | 0 | 0 |
-| Adaptive 0.4 | 16410 | 0.19% | 0 | 29 |
+| Adaptive 0.4 | 16410 | 0.18% | 0 | 30 |
 | Adaptive 0.7 (default) | 16410 | 0.09% | 3 | 48 |
 | Adaptive 1.0 | 16410 | 0.08% | 5 | 52 |
 
@@ -80,9 +80,9 @@ These are where a language prior can *hurt*. The goal is no increase in errors.
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 290 | 4.83% | 0 | 0 |
-| Adaptive 0.4 | 290 | 4.14% | 0 | 2 |
-| Adaptive 0.7 (default) | 290 | 3.45% | 0 | 4 |
-| Adaptive 1.0 | 290 | 3.79% | 2 | 5 |
+| Adaptive 0.4 | 290 | 3.79% | 0 | 3 |
+| Adaptive 0.7 (default) | 290 | 3.10% | 0 | 5 |
+| Adaptive 1.0 | 290 | 3.45% | 2 | 6 |
 
 **Deliberate unusual strings (qwerty, xkcd, qajaq, jjjj…) — careful aim**
 

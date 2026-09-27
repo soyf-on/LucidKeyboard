@@ -35,7 +35,9 @@ To switch back to another keyboard, use the globe key (long-press it for the sys
 | Remove an unwanted suggestion | Long-press it ▸ **Don't suggest** |
 | Change autocorrect, adaptive targets, private mode | Sliders button at the left of the bar |
 | Move the cursor | Drag along the space bar |
-| Accents / digits | Long-press a letter |
+| Accents / symbols | Long-press a letter (hold m for ?) |
+| Comma / period extras | Hold `,` for emoji and quotes; hold `.` for ? ! … : ; |
+| Paste something copied | Tap the clipboard icon in the bar, or the “just copied” chip |
 | Caps lock | Double-tap shift |
 | Period | Double-tap space |
 
@@ -114,6 +116,7 @@ Measured timings on a desktop x86 CPU (emulator or JVM, **not the phone**): tap 
 * An extra *first* letter far from the next key ("rnew") is offered as the top
   suggestion but not auto-replaced, because it is ambiguous ("new" / "renew").
 * English and Dutch only; no emoji skin tones.
+* Clipboard history is kept in memory only (by design) and is empty after the keyboard restarts.
 * Tapping into the middle of existing text resets suggestions for that word (backspacing
   into a word does resume them).
 * A hardware keyboard hides the on-screen keyboard (standard Android behaviour).

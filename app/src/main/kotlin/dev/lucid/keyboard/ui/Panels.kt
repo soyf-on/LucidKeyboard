@@ -315,3 +315,65 @@ class EmojiPanel(
         resultsScroll.scrollTo(0, 0)
     }
 }
+
+/**
+ * Clipboard panel: recently copied text (memory only, see ClipboardHistory). Tap an item
+ * to paste it, long-press to remove it.
+ */
+@SuppressLint("ViewConstructor")
+class ClipboardPanel(
+    context: Context,
+    private val renderer: GlassRenderer,
+    items: List<String>,
+    private val actions: Actions,
+    panelHeight: Int,
+) : LinearLayout(context) {
+    interface Actions { fun onPaste(text: String); fun onRemoveClip(text: String); fun onClearClips(); fun onAbc() }
+
+    private val d = resources.displayMetrics.density
+    private val list = LinearLayout(context).apply { orientation = VERTICAL; setPadding((10 * d).toInt(), 0, (10 * d).toInt(), (6 * d).toInt()) }
+    private var current = items
+
+    init {
+        orientation = VERTICAL
+        val p = renderer.palette
+        val header = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding((16 * d).toInt(), 0, (6 * d).toInt(), 0) }
+        header.addView(TextView(context).apply {
+            text = "Clipboard"; setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            p?.let { setTextColor(it.label) }
+        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        header.addView(GlassButton(context, renderer, "Clear") { actions.onClearClips(); show(emptyList()) }, LayoutParams((84 * d).toInt(), (40 * d).toInt()))
+        addView(header, LayoutParams(LayoutParams.MATCH_PARENT, (44 * d).toInt()))
+        val scroll = android.widget.ScrollView(context).apply { isVerticalScrollBarEnabled = false; addView(list) }
+        addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, panelHeight - (44 * d).toInt() - (48 * d).toInt()))
+        val bar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        bar.addView(GlassButton(context, renderer, "ABC") { actions.onAbc() }, LayoutParams((64 * d).toInt(), (44 * d).toInt()))
+        addView(bar, LayoutParams(LayoutParams.MATCH_PARENT, (48 * d).toInt()))
+        show(items)
+    }
+
+    private fun show(items: List<String>) {
+        current = items
+        list.removeAllViews()
+        val p = renderer.palette ?: return
+        if (items.isEmpty()) {
+            list.addView(TextView(context).apply {
+                text = "Text you copy appears here.\nKept in memory only — never saved, and passwords marked sensitive are skipped."
+                setTextColor(p.labelSecondary); setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f); setPadding((8 * d).toInt(), (12 * d).toInt(), (8 * d).toInt(), 0)
+            })
+            return
+        }
+        for (t in items) {
+            val row = TextView(context).apply {
+                text = t
+                maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f); setTextColor(p.label)
+                setPadding((14 * d).toInt(), (10 * d).toInt(), (14 * d).toInt(), (10 * d).toInt())
+                background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = 14 * d; setColor(p.chip) }
+                setOnClickListener { performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); actions.onPaste(t) }
+                setOnLongClickListener { actions.onRemoveClip(t); show(current - t); true }
+            }
+            list.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = (6 * d).toInt() })
+        }
+    }
+}

@@ -32,6 +32,8 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
         fun onEmojiShortcut()
         fun onSwitchKeyboard()
         fun onPunctuation(p: String)
+        fun onClipboard()
+        fun onPasteClip(text: String)
     }
 
     var listener: Listener? = null
@@ -39,8 +41,10 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
     var quickPanelOpen = false; set(v) { field = v; invalidate() }
     /** Show the keyboard-switch shortcut (Android asks IMEs to offer one on some setups). */
     var showSwitch = false; set(v) { if (field != v) { field = v; rebuild() } }
+    /** Text copied in the last minute: offered as a one-tap paste while nothing is typed. */
+    var freshClip: String? = null; set(v) { if (field != v) { field = v; rebuild() } }
 
-    private enum class Kind { LITERAL, CORRECTION, SUGGESTION, ACTION_LEARN, ACTION_NEVER, ACTION_BLOCK, ACTION_REVERT, CLOSE_MENU, SHORTCUT_EMOJI, SHORTCUT_SWITCH, SHORTCUT_PUNCT }
+    private enum class Kind { LITERAL, CORRECTION, SUGGESTION, ACTION_LEARN, ACTION_NEVER, ACTION_BLOCK, ACTION_REVERT, CLOSE_MENU, SHORTCUT_EMOJI, SHORTCUT_SWITCH, SHORTCUT_PUNCT, SHORTCUT_CLIPBOARD, CLIP_TEXT }
     private data class Chip(val kind: Kind, val text: String, val word: String, val emphasis: Boolean = false)
 
     private var state = StripState()
@@ -86,12 +90,14 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
                 Chip(Kind.ACTION_REVERT, "↶ “${last.first}”", last.first),
             )
             // Nothing typed, but there is context: next-word predictions.
-            s.literal.isEmpty() && s.predictions.isNotEmpty() -> listOf(Chip(Kind.SHORTCUT_EMOJI, "", "")) +
+            s.literal.isEmpty() && freshClip != null -> listOf(Chip(Kind.SHORTCUT_EMOJI, "", ""), Chip(Kind.SHORTCUT_CLIPBOARD, "", ""),
+                Chip(Kind.CLIP_TEXT, freshClip!!.replace('\n', ' '), freshClip!!, true))
+            s.literal.isEmpty() && s.predictions.isNotEmpty() -> listOf(Chip(Kind.SHORTCUT_EMOJI, "", ""), Chip(Kind.SHORTCUT_CLIPBOARD, "", "")) +
                 s.predictions.take(3).map { Chip(Kind.SUGGESTION, it, it) }
             // Nothing typed: shortcuts instead of an empty bar.
             s.literal.isEmpty() -> listOfNotNull(
                 Chip(Kind.SHORTCUT_EMOJI, "", ""),
-                Chip(Kind.SHORTCUT_PUNCT, ",", ","),
+                Chip(Kind.SHORTCUT_CLIPBOARD, "", ""),
                 Chip(Kind.SHORTCUT_PUNCT, "?", "?"),
                 Chip(Kind.SHORTCUT_PUNCT, "!", "!"),
                 if (showSwitch) Chip(Kind.SHORTCUT_SWITCH, "", "") else null,
@@ -130,12 +136,19 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
         chipRects.clear()
         if (chips.isEmpty()) return
         val left = btnRect.right + 8 * d; val right = hideRect.left - 8 * d
-        val cw = (right - left) / chips.size
+        // Icon shortcuts are narrow when they share the bar with words.
+        fun isIcon(k: Kind) = k == Kind.SHORTCUT_EMOJI || k == Kind.SHORTCUT_SWITCH || k == Kind.SHORTCUT_PUNCT || k == Kind.SHORTCUT_CLIPBOARD
+        val mixed = chips.any { !isIcon(it.kind) }
+        val weights = chips.map { if (mixed && isIcon(it.kind)) 0.55f else 1f }
+        val unit = (right - left) / weights.sum()
         divider.color = ColorUtils.setAlphaComponent(p.labelSecondary, 70)
+        var x0 = left
         chips.forEachIndexed { i, chip ->
-            val r = RectF(left + i * cw, 0f, left + (i + 1) * cw, h)
+            val cw = unit * weights[i]
+            val r = RectF(x0, 0f, x0 + cw, h)
+            x0 += cw
             chipRects += r
-            if (chip.kind == Kind.SHORTCUT_EMOJI || chip.kind == Kind.SHORTCUT_SWITCH || chip.kind == Kind.SHORTCUT_PUNCT) {
+            if (isIcon(chip.kind)) {
                 // Plain glyphs, like a system toolbar; a soft round highlight only while pressed.
                 val bh = h * 0.72f
                 tmp.set(r.centerX() - bh / 2, (h - bh) / 2, r.centerX() + bh / 2, (h + bh) / 2)
@@ -143,6 +156,7 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
                 when (chip.kind) {
                     Kind.SHORTCUT_EMOJI -> drawSmiley(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
                     Kind.SHORTCUT_SWITCH -> drawGlobe(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
+                    Kind.SHORTCUT_CLIPBOARD -> drawClipboard(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
                     else -> {
                         text.textSize = 20 * d; text.typeface = Typeface.DEFAULT; text.color = p.label
                         val fm = text.fontMetrics
@@ -185,6 +199,16 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
         c.drawCircle(cx - r * 0.35f, cy - r * 0.2f, r * 0.11f, f); c.drawCircle(cx + r * 0.35f, cy - r * 0.2f, r * 0.11f, f)
         tmp2.set(cx - r * 0.5f, cy - r * 0.35f, cx + r * 0.5f, cy + r * 0.55f)
         c.drawArc(tmp2, 20f, 140f, false, icon)
+    }
+
+    private fun drawClipboard(c: Canvas, cx: Float, cy: Float, r: Float, color: Int) {
+        icon.color = color; icon.strokeWidth = 1.5f * d
+        tmp2.set(cx - r * 0.78f, cy - r * 0.85f, cx + r * 0.78f, cy + r)
+        c.drawRoundRect(tmp2, r * 0.22f, r * 0.22f, icon)
+        tmp2.set(cx - r * 0.38f, cy - r * 1.05f, cx + r * 0.38f, cy - r * 0.62f)
+        c.drawRoundRect(tmp2, r * 0.15f, r * 0.15f, icon)
+        c.drawLine(cx - r * 0.4f, cy - r * 0.1f, cx + r * 0.4f, cy - r * 0.1f, icon)
+        c.drawLine(cx - r * 0.4f, cy + r * 0.35f, cx + r * 0.2f, cy + r * 0.35f, icon)
     }
 
     private fun drawGlobe(c: Canvas, cx: Float, cy: Float, r: Float, color: Int) {
@@ -237,6 +261,8 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
             Kind.SHORTCUT_EMOJI -> l.onEmojiShortcut()
             Kind.SHORTCUT_SWITCH -> l.onSwitchKeyboard()
             Kind.SHORTCUT_PUNCT -> l.onPunctuation(chip.text)
+            Kind.SHORTCUT_CLIPBOARD -> l.onClipboard()
+            Kind.CLIP_TEXT -> l.onPasteClip(chip.word)
         }
     }
 

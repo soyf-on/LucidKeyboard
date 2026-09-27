@@ -30,6 +30,13 @@ class FieldTestActivity : Activity() {
         field("nosuggest", text or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
         field("incognito", text or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, EditorInfo.IME_ACTION_SEARCH or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)
         field("search", text, EditorInfo.IME_ACTION_SEARCH)
+        col.addView(android.widget.Button(this).apply {
+            setText("Copy sample text"); tag = "copy"
+            setOnClickListener {
+                getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("sample", "See you at the station at 7"))
+            }
+        })
         setContentView(ScrollView(this).apply { addView(col) })
     }
 }

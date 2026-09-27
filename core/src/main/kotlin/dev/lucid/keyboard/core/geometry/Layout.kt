@@ -166,21 +166,24 @@ object Layouts {
         return p.copy(rowHeight = inner / 4f - p.vGap, numberRow = false)
     }
 
-    /** Long-press on the period key: comma first (hold-and-release types it), then punctuation and emoji. */
-    val PERIOD_ALTERNATES = listOf(",", "?", "!", "'", "\"", ":", ";", "-", "…", EMOJI_ALTERNATE)
+    /** Long-press on the period key (hold-and-release types the first one). */
+    val PERIOD_ALTERNATES = listOf("?", "!", "…", ":", ";", "-", "'", "\"")
+    /** Long-press on the comma key: emoji first, then quotes and separators. */
+    val COMMA_ALTERNATES = listOf(EMOJI_ALTERNATE, "'", "\"", ";", ":", "-", "_")
 
     /**
-     * Clean bottom row, like iOS: mode key, space, period, return. Emoji, comma and the
-     * keyboard switcher live on long-presses and in the suggestion bar instead.
+     * Clean bottom row: mode key, period, space, comma, return. Emoji and the keyboard
+     * switcher live on long-presses and in the suggestion bar instead.
      */
     private fun bottomRow(p: LayoutParams, unit: Float, y: Float, keys: MutableList<Key>, modeKind: KeyKind, modeLabel: String, row: Int = 3) {
         data class Spec(val kind: KeyKind, val out: String, val label: String, val units: Float, val lp: List<String> = emptyList())
         val specs = ArrayList<Spec>()
         specs += Spec(modeKind, "", modeLabel, 1.5f)
         p.extraKey?.let { specs += Spec(KeyKind.CHAR, it, it, 1.0f, if (it == "@") listOf(".", "_", "-") else listOf(".com", ".nl", ":", "-", "_")) }
+        specs += Spec(KeyKind.CHAR, ".", ".", 1.0f, PERIOD_ALTERNATES)
         val fixed = specs.sumOf { it.units.toDouble() }.toFloat() + 1.0f + 2.0f
         specs += Spec(KeyKind.SPACE, " ", "space", 10f - fixed)
-        specs += Spec(KeyKind.CHAR, ".", ".", 1.0f, PERIOD_ALTERNATES)
+        specs += Spec(KeyKind.CHAR, ",", ",", 1.0f, COMMA_ALTERNATES)
         specs += Spec(KeyKind.ENTER, "\n", "return", 2.0f)
         var x = p.sidePadding
         for (s in specs) {

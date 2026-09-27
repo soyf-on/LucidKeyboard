@@ -45,6 +45,7 @@ import dev.lucid.keyboard.data.Prefs
 import dev.lucid.keyboard.data.Settings
 import dev.lucid.keyboard.settings.SettingsActivity
 import dev.lucid.keyboard.ui.Dimensions
+import dev.lucid.keyboard.ui.ClipboardPanel
 import dev.lucid.keyboard.ui.EmojiData
 import dev.lucid.keyboard.ui.EmojiPanel
 import dev.lucid.keyboard.ui.GlassRenderer
@@ -56,7 +57,7 @@ import dev.lucid.keyboard.ui.SuggestionStrip
 import java.util.concurrent.Executor
 
 class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, SuggestionStrip.Listener,
-    QuickPanel.Actions, EmojiPanel.Actions, SharedPreferences.OnSharedPreferenceChangeListener {
+    QuickPanel.Actions, EmojiPanel.Actions, ClipboardPanel.Actions, SharedPreferences.OnSharedPreferenceChangeListener {
 
     private val app get() = application as LucidApp
     private lateinit var settings: Settings
@@ -72,7 +73,15 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     private var content: FrameLayout? = null
     private var overlay: PopupOverlay? = null
 
-    private enum class Mode { LETTERS, SYMBOLS, SYMBOLS2, NUMPAD, PHONE, EMOJI }
+    private enum class Mode { LETTERS, SYMBOLS, SYMBOLS2, NUMPAD, PHONE, EMOJI, CLIPBOARD }
+
+    // ---- clipboard (memory only; see ClipboardHistory) ----
+    private val clips = dev.lucid.keyboard.data.ClipboardHistory()
+    private val clipboard by lazy { getSystemService(android.content.ClipboardManager::class.java) }
+    private val clipListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+        clips.capture(clipboard, settings.privateMode, SystemClock.elapsedRealtime())
+        scheduleStrip()
+    }
     private var mode = Mode.LETTERS
     private var quickOpen = false
     private var blurActive = false
@@ -89,6 +98,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         settings = app.prefs.load()
         renderer = GlassRenderer(resources.displayMetrics.density)
         app.prefs.sp.registerOnSharedPreferenceChangeListener(this)
+        runCatching { clipboard?.addPrimaryClipChangedListener(clipListener) }
         landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val eng = app.engine()
         if (eng != null) {
@@ -102,6 +112,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     }
 
     override fun onDestroy() {
+        runCatching { clipboard?.removePrimaryClipChangedListener(clipListener) }
         app.prefs.sp.unregisterOnSharedPreferenceChangeListener(this)
         app.storage.flush()
         super.onDestroy()
@@ -179,6 +190,12 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         c.removeAllViews()
         quickOpen = false
         strip?.quickPanelOpen = false
+        if (m == Mode.CLIPBOARD) {
+            val panel = ClipboardPanel(this, renderer, clips.items(), this, keyboardHeight())
+            c.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, keyboardHeight()))
+            animateIn(panel)
+            return
+        }
         if (m == Mode.EMOJI) {
             val h = keyboardHeight()
             val recent = app.prefs.sp.getString(Prefs.K.RECENT_EMOJI, "")!!.split(' ').filter { it.isNotEmpty() }
@@ -343,6 +360,8 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
             else -> null
         }
         strip?.showSwitch = shouldOfferSwitchingToNextInputMethod()
+        // Pick up anything copied while the keyboard wasn't running (freshness uses the copy time).
+        clipboard?.let { clips.capture(it, settings.privateMode, SystemClock.elapsedRealtime()) }
         val field = EditorBridge.fieldFor(info)
         // Language: start from what was last written in this app (this session, memory only),
         // then startInput() refines it from any text already in the field.
@@ -517,6 +536,8 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     private fun updateStrip() {
         val l = logic ?: return
+        val fresh = SystemClock.elapsedRealtime() - clips.newestAt < dev.lucid.keyboard.data.ClipboardHistory.FRESH_MS
+        strip?.freshClip = if (fresh && !settings.privateMode) clips.items().firstOrNull() else null
         val t0 = SystemClock.elapsedRealtimeNanos()
         strip?.setState(l.stripState())
         lastStripMicros = (SystemClock.elapsedRealtimeNanos() - t0) / 1000
@@ -562,6 +583,20 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun onRemoveSuggestion(word: String) { logic?.removeSuggestion(word); afterEdit() }
     override fun onHideKeyboard() { requestHideSelf(0) }
     override fun onEmojiShortcut() = showMode(Mode.EMOJI)
+    override fun onClipboard() {
+        clipboard?.let { clips.capture(it, settings.privateMode, SystemClock.elapsedRealtime()) }
+        showMode(if (mode == Mode.CLIPBOARD) Mode.LETTERS else Mode.CLIPBOARD)
+    }
+    override fun onPasteClip(text: String) { paste(text) }
+    override fun onPaste(text: String) { paste(text); showMode(Mode.LETTERS) }
+    override fun onRemoveClip(text: String) = clips.remove(text)
+    override fun onClearClips() = clips.clear()
+
+    private fun paste(text: String) {
+        logic?.onText(text) ?: currentInputConnection?.commitText(text, 1)
+        clips.markUsed()
+        afterEdit()
+    }
     override fun onSwitchKeyboard() { if (Build.VERSION.SDK_INT >= 28) switchToNextInputMethod(false) else showImePicker() }
     override fun onPunctuation(p: String) { logic?.onPunctuationShortcut(p) ?: currentInputConnection?.commitText("$p ", 1); afterEdit() }
 
