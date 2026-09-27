@@ -64,10 +64,13 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
     // Visual state supplied by the service.
     var shiftOn = false; set(v) { if (field != v) { field = v; invalidate() } }
     var capsLock = false; set(v) { if (field != v) { field = v; invalidate() } }
-    var enterLabel: String = "return"; set(v) { field = v; invalidate() }
+    enum class EnterIcon { RETURN, GO, SEARCH, SEND, NEXT, DONE, PREVIOUS }
+    var enterIcon = EnterIcon.RETURN; set(v) { field = v; invalidate() }
     var enterIsAction = false; set(v) { field = v; invalidate() }
+    /** Subtle label on the space bar, e.g. "EN · NL" when typing in two languages. */
+    var spaceLabel = ""; set(v) { field = v; invalidate() }
     var keyPopups = true
-    var showDigitHints = true
+    var showDigitHints = false
     var overlay: PopupOverlay? = null
 
     private val density = resources.displayMetrics.density
@@ -154,7 +157,7 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
                 }
                 if (keyPopups && isCharKey(key) && key.kind != KeyKind.SPACE) overlay?.showPreview(this, key, displayLabel(key))
                 removeCallbacks(longPressRunnable)
-                if (key.longPress.isNotEmpty() || key.kind == KeyKind.SPACE || key.kind == KeyKind.SWITCH_IME || key.kind == KeyKind.TO_SYMBOLS)
+                if (key.longPress.isNotEmpty() || key.kind == KeyKind.SPACE || key.kind == KeyKind.SWITCH_IME || key.kind == KeyKind.TO_SYMBOLS || key.kind == KeyKind.TO_LETTERS || key.kind == KeyKind.ENTER)
                     postDelayed(longPressRunnable, if (key.kind == KeyKind.SPACE) 550L else 380L)
             }
             MotionEvent.ACTION_MOVE -> {
@@ -219,7 +222,8 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         val k = p.key
         when {
             k.kind == KeyKind.SPACE -> { p.cursorMode = true; p.cursorAnchorX = p.down.x; listener?.onKeyDownFeedback(k) }
-            k.kind == KeyKind.SWITCH_IME || k.kind == KeyKind.TO_SYMBOLS -> { if (listener?.onLongPressFunction(k) == true) p.longPressFired = true }
+            k.kind == KeyKind.SWITCH_IME || k.kind == KeyKind.TO_SYMBOLS || k.kind == KeyKind.TO_LETTERS || k.kind == KeyKind.ENTER ->
+                if (listener?.onLongPressFunction(k) == true) { p.longPressFired = true; listener?.onKeyDownFeedback(k) }
             k.longPress.isNotEmpty() -> {
                 overlay?.hidePreview()
                 p.alternates = k.longPress
@@ -246,7 +250,6 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
     fun displayLabel(k: Key): String = when (k.kind) {
         KeyKind.LETTER -> if (shiftOn || capsLock) k.label.uppercase() else k.label
         KeyKind.SPACE -> ""
-        KeyKind.ENTER -> enterLabel
         else -> k.label
     }
 
@@ -278,33 +281,71 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
         val color = if (style == CapStyle.ACCENT) p.labelOnAccent else p.label
         val cx = k.cx; val cy = k.cy
         val s = min(k.w, k.h)
+        val icon = s * 0.34f
         when (k.kind) {
-            KeyKind.SHIFT -> { drawShift(c, cx, cy, s * 0.36f, color, filled = shiftOn || capsLock, underline = capsLock); return }
-            KeyKind.BACKSPACE -> { drawBackspace(c, cx, cy, s * 0.36f, color); return }
-            KeyKind.EMOJI -> { drawSmiley(c, cx, cy, s * 0.30f, color); return }
-            KeyKind.SWITCH_IME -> { drawGlobe(c, cx, cy, s * 0.30f, color); return }
+            KeyKind.SHIFT -> { drawShift(c, cx, cy, icon, color, filled = shiftOn || capsLock, underline = capsLock); return }
+            KeyKind.BACKSPACE -> { drawBackspace(c, cx, cy, icon, color); return }
+            KeyKind.EMOJI -> { drawSmiley(c, cx, cy, s * 0.28f, color); return }
+            KeyKind.SWITCH_IME -> { drawGlobe(c, cx, cy, s * 0.28f, color); return }
+            KeyKind.ENTER -> { drawEnter(c, cx, cy, icon, color); return }
             KeyKind.SPACE -> {
-                hintPaint.color = p.labelSecondary; hintPaint.textSize = 14 * density
-                c.drawText("space", cx, cy + hintPaint.textSize * 0.35f, hintPaint); return
+                if (spaceLabel.isEmpty()) return
+                hintPaint.color = p.labelSecondary
+                hintPaint.textSize = fitTextSize(hintPaint, spaceLabel, k.w - 24 * density, 13 * density)
+                c.drawText(spaceLabel, cx, cy + hintPaint.textSize * 0.35f, hintPaint); return
             }
             else -> {}
         }
         val text = displayLabel(k)
         labelPaint.color = color
-        labelPaint.textSize = when {
-            k.kind == KeyKind.LETTER -> 25 * density
-            k.kind == KeyKind.CHAR && text.length == 1 -> 23 * density
-            else -> 16 * density
+        labelPaint.typeface = if (k.kind == KeyKind.LETTER || (k.kind == KeyKind.CHAR && text.length == 1)) Typeface.DEFAULT else Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val maxSize = when {
+            k.kind == KeyKind.LETTER -> min(25 * density, k.h * 0.52f)
+            k.kind == KeyKind.CHAR && text.length == 1 -> min(23 * density, k.h * 0.48f)
+            else -> min(16 * density, k.h * 0.36f)
         }
-        labelPaint.typeface = if (k.kind == KeyKind.LETTER || k.kind == KeyKind.CHAR) Typeface.DEFAULT else Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        // Auto-fit: every label keeps a clear margin from the key edge.
+        labelPaint.textSize = fitTextSize(labelPaint, text, k.w - 14 * density, maxSize)
         val fm = labelPaint.fontMetrics
-        val baseline = cy - (fm.ascent + fm.descent) / 2
-        c.drawText(text, cx, baseline, labelPaint)
+        c.drawText(text, cx, cy - (fm.ascent + fm.descent) / 2, labelPaint)
         if (showDigitHints && k.kind == KeyKind.LETTER && k.row == 0 && k.longPress.isNotEmpty()) {
             hintPaint.color = ColorUtils.setAlphaComponent(p.labelSecondary, 150)
-            hintPaint.textSize = 10 * density
-            c.drawText(k.longPress[0], k.x + k.w - 7 * density, k.y + 12 * density, hintPaint)
+            hintPaint.textSize = 9 * density
+            c.drawText(k.longPress[0], k.x + k.w - 8 * density, k.y + 12 * density, hintPaint)
         }
+    }
+
+    /** Return / action glyphs, drawn as strokes so they scale cleanly with the key. */
+    private fun drawEnter(c: Canvas, cx: Float, cy: Float, r: Float, color: Int) {
+        stroke(color, 1.8f * density)
+        path.reset()
+        when (enterIcon) {
+            EnterIcon.RETURN -> { // ↵
+                path.moveTo(cx + r * 0.75f, cy - r * 0.55f); path.lineTo(cx + r * 0.75f, cy + r * 0.15f); path.lineTo(cx - r * 0.7f, cy + r * 0.15f)
+                c.drawPath(path, iconPaint)
+                path.reset(); path.moveTo(cx - r * 0.35f, cy - r * 0.2f); path.lineTo(cx - r * 0.75f, cy + r * 0.15f); path.lineTo(cx - r * 0.35f, cy + r * 0.5f)
+            }
+            EnterIcon.GO, EnterIcon.NEXT -> { // →
+                path.moveTo(cx - r * 0.7f, cy); path.lineTo(cx + r * 0.7f, cy)
+                path.moveTo(cx + r * 0.25f, cy - r * 0.45f); path.lineTo(cx + r * 0.7f, cy); path.lineTo(cx + r * 0.25f, cy + r * 0.45f)
+            }
+            EnterIcon.PREVIOUS -> {
+                path.moveTo(cx + r * 0.7f, cy); path.lineTo(cx - r * 0.7f, cy)
+                path.moveTo(cx - r * 0.25f, cy - r * 0.45f); path.lineTo(cx - r * 0.7f, cy); path.lineTo(cx - r * 0.25f, cy + r * 0.45f)
+            }
+            EnterIcon.SEND -> { // ↑
+                path.moveTo(cx, cy + r * 0.7f); path.lineTo(cx, cy - r * 0.7f)
+                path.moveTo(cx - r * 0.45f, cy - r * 0.25f); path.lineTo(cx, cy - r * 0.7f); path.lineTo(cx + r * 0.45f, cy - r * 0.25f)
+            }
+            EnterIcon.SEARCH -> { // magnifier
+                c.drawCircle(cx - r * 0.12f, cy - r * 0.12f, r * 0.42f, iconPaint)
+                path.moveTo(cx + r * 0.2f, cy + r * 0.2f); path.lineTo(cx + r * 0.62f, cy + r * 0.62f)
+            }
+            EnterIcon.DONE -> { // ✓
+                path.moveTo(cx - r * 0.6f, cy + r * 0.02f); path.lineTo(cx - r * 0.15f, cy + r * 0.45f); path.lineTo(cx + r * 0.65f, cy - r * 0.45f)
+            }
+        }
+        c.drawPath(path, iconPaint)
     }
 
     private fun stroke(color: Int, w: Float) { iconPaint.color = color; iconPaint.strokeWidth = w }

@@ -263,6 +263,30 @@ class InputLogic(
         updateAutoShift()
     }
 
+    /**
+     * Punctuation from the suggestion-bar shortcuts. Attaches to the previous word and
+     * adds a space: "word ⎵" + "," -> "word, ".
+     */
+    fun onPunctuationShortcut(p: String) {
+        editor.beginBatch()
+        try {
+            if (isComposing) {
+                commitWord(correct = true, separator = p)
+                lastCorrection = null
+            } else {
+                val before = editor.textBeforeCursor(2).orEmpty()
+                if (before.length == 2 && before[1] == ' ' && (before[0].isLetterOrDigit() || before[0] in "\"')")) editor.deleteBefore(1)
+                editor.commit(p)
+                lastCorrection = null; revertedWord = null
+            }
+            editor.commit(" ")
+            phantomSpace = true
+            lastSeparatorWasSpace = false
+            decoder.beginWord()
+            updateAutoShift()
+        } finally { editor.endBatch() }
+    }
+
     fun onEnter() {
         if (isComposing) commitWord(correct = true, separator = "")
         leaveCommittedState()

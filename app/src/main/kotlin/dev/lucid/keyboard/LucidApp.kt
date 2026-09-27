@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.SystemClock
 import android.util.Log
 import dev.lucid.keyboard.core.lm.LanguageModel
+import dev.lucid.keyboard.core.lm.LanguagePack
 import dev.lucid.keyboard.core.lm.ModelBundle
 import dev.lucid.keyboard.core.lm.UserVocabulary
 import dev.lucid.keyboard.core.touch.SpatialModel
@@ -25,9 +26,18 @@ class LucidApp : Application() {
     /** Milliseconds the model load took (measured, shown in Settings > About). */
     @Volatile var loadMillis = 0L; private set
 
-    class Loaded(val bundle: ModelBundle, val vocabulary: UserVocabulary, val portrait: SpatialModel, val landscape: SpatialModel) {
-        val lm = LanguageModel(bundle.lexicon, bundle.ngram, vocabulary, bundle.replacements)
+    inner class Loaded(initial: List<LanguagePack>, val vocabulary: UserVocabulary, val portrait: SpatialModel, val landscape: SpatialModel) {
+        private val packs = HashMap<String, LanguagePack>().apply { initial.forEach { put(it.code, it) } }
+        val lm = LanguageModel(initial, vocabulary)
         fun spatial(landscape: Boolean) = if (landscape) this.landscape else portrait
+
+        /** Activates [codes] (loading any not yet in memory). Returns true if the set changed. */
+        fun setLanguages(codes: Set<String>): Boolean {
+            val wanted = ModelBundle.LANGUAGES.filter { it in codes }.ifEmpty { listOf("en") }
+            if (lm.packs.map { it.code } == wanted) return false
+            lm.setPacks(wanted.map { c -> packs.getOrPut(c) { ModelBundle.loadPack(c) { assets.open(it) } } })
+            return true
+        }
     }
 
     override fun onCreate() {
@@ -38,8 +48,9 @@ class LucidApp : Application() {
         Thread({
             val t0 = SystemClock.elapsedRealtime()
             try {
-                val bundle = ModelBundle.load { assets.open(it) }
-                loaded = Loaded(bundle, storage.loadVocabulary(), storage.loadSpatial(false), storage.loadSpatial(true))
+                val langs = ModelBundle.LANGUAGES.filter { it in prefs.load().languages }.ifEmpty { listOf("en") }
+                val packs = langs.map { c -> ModelBundle.loadPack(c) { assets.open(it) } }
+                loaded = Loaded(packs, storage.loadVocabulary(), storage.loadSpatial(false), storage.loadSpatial(true))
             } catch (e: Exception) {
                 Log.e(TAG, "model load failed", e)
             } finally {

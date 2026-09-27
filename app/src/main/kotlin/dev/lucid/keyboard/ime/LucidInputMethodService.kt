@@ -141,8 +141,11 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
+    /** "/" in URL fields, "@" in e-mail fields, beside the space bar. */
+    private var extraKey: String? = null
+
     private fun layoutParams(width: Float): LayoutParams =
-        Dimensions.params(width, resources.displayMetrics.density, landscape, settings, shouldOfferSwitchingToNextInputMethod())
+        Dimensions.params(width, resources.displayMetrics.density, landscape, settings, extraKey)
 
     private fun keyboardHeight() = Layouts.totalHeight(layoutParams(resources.displayMetrics.widthPixels.toFloat())).toInt()
 
@@ -192,6 +195,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         keyboard?.apply {
             keyPopups = settings.keyPopups && !settings.reduceMotion
             overlayEnabled = settings.devOverlay
+            showDigitHints = settings.digitHints
         }
         applyWindowBlur()
         root?.invalidate(); keyboard?.invalidate(); strip?.invalidate()
@@ -222,7 +226,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
                     val rad = 18f * resources.displayMetrics.density
                     cornerRadii = floatArrayOf(rad, rad, rad, rad, 0f, 0f, 0f, 0f)
                 })
-                w.setBackgroundBlurRadius((34 * resources.displayMetrics.density).toInt())
+                w.setBackgroundBlurRadius((44 * resources.displayMetrics.density).toInt())
                 active = true
             } else {
                 w.setBackgroundBlurRadius(0)
@@ -243,6 +247,14 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         settings = app.prefs.load()
         logic?.settings = settings.typing()
         editor.reset(info)
+        applyLanguages()
+        val variation = info.inputType and android.text.InputType.TYPE_MASK_VARIATION
+        extraKey = when (variation) {
+            android.text.InputType.TYPE_TEXT_VARIATION_URI -> "/"
+            android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, android.text.InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS -> "@"
+            else -> null
+        }
+        strip?.showSwitch = shouldOfferSwitchingToNextInputMethod()
         val field = EditorBridge.fieldFor(info)
         logic?.startInput(field)
         applyAppearance()
@@ -291,13 +303,12 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         val noAction = (info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
         val multiLine = (info.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
         enterAction = if (noAction || multiLine) EditorInfo.IME_ACTION_NONE else action
-        val label = when (enterAction) {
-            EditorInfo.IME_ACTION_GO -> "go"; EditorInfo.IME_ACTION_SEARCH -> "search"
-            EditorInfo.IME_ACTION_SEND -> "send"; EditorInfo.IME_ACTION_NEXT -> "next"
-            EditorInfo.IME_ACTION_DONE -> "done"; EditorInfo.IME_ACTION_PREVIOUS -> "prev"
-            else -> "return"
+        keyboard?.enterIcon = when (enterAction) {
+            EditorInfo.IME_ACTION_GO -> KeyboardView.EnterIcon.GO; EditorInfo.IME_ACTION_SEARCH -> KeyboardView.EnterIcon.SEARCH
+            EditorInfo.IME_ACTION_SEND -> KeyboardView.EnterIcon.SEND; EditorInfo.IME_ACTION_NEXT -> KeyboardView.EnterIcon.NEXT
+            EditorInfo.IME_ACTION_DONE -> KeyboardView.EnterIcon.DONE; EditorInfo.IME_ACTION_PREVIOUS -> KeyboardView.EnterIcon.PREVIOUS
+            else -> KeyboardView.EnterIcon.RETURN
         }
-        keyboard?.enterLabel = label
         keyboard?.enterIsAction = enterAction in setOf(EditorInfo.IME_ACTION_GO, EditorInfo.IME_ACTION_SEARCH, EditorInfo.IME_ACTION_SEND)
     }
 
@@ -328,7 +339,11 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         afterEdit()
     }
 
-    override fun onText(text: String) { logic?.onText(text) ?: currentInputConnection?.commitText(text, 1); afterEdit() }
+    override fun onText(text: String) {
+        if (text == Layouts.EMOJI_ALTERNATE) { showMode(Mode.EMOJI); return }
+        logic?.onText(text) ?: currentInputConnection?.commitText(text, 1)
+        afterEdit()
+    }
 
     override fun onBackspace() {
         val l = logic
@@ -355,7 +370,8 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     override fun onLongPressFunction(key: Key): Boolean = when (key.kind) {
         KeyKind.SWITCH_IME -> { showImePicker(); true }
-        KeyKind.TO_SYMBOLS -> { openSettings("home"); true }
+        // Hold 123 (or ABC) for emoji.
+        KeyKind.TO_SYMBOLS, KeyKind.TO_LETTERS -> { showMode(Mode.EMOJI); true }
         else -> false
     }
 
@@ -439,6 +455,9 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun onNeverCorrect(word: String) { logic?.neverCorrect(word); afterEdit() }
     override fun onRemoveSuggestion(word: String) { logic?.removeSuggestion(word); afterEdit() }
     override fun onHideKeyboard() { requestHideSelf(0) }
+    override fun onEmojiShortcut() = showMode(Mode.EMOJI)
+    override fun onSwitchKeyboard() { if (Build.VERSION.SDK_INT >= 28) switchToNextInputMethod(false) else showImePicker() }
+    override fun onPunctuation(p: String) { logic?.onPunctuationShortcut(p) ?: currentInputConnection?.commitText("$p ", 1); afterEdit() }
 
     override fun onQuickPanel() {
         val c = content ?: return
@@ -452,7 +471,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     }
 
     private fun bindQuick(qp: QuickPanel? = content?.getChildAt(0) as? QuickPanel) {
-        qp?.bind(settings.correction, settings.adaptive, settings.suggestions, settings.autoCap, settings.privateMode, renderer.palette!!.label)
+        qp?.bind(settings.correction, settings.adaptive, settings.suggestions, settings.autoCap, settings.privateMode, settings.languages, renderer.palette!!.label)
     }
 
     override fun setCorrection(m: CorrectionMode) = app.prefs.edit { putString(Prefs.K.CORRECTION, m.name) }
@@ -460,6 +479,19 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun toggleSuggestions() = app.prefs.edit { putBoolean(Prefs.K.SUGGESTIONS, !settings.suggestions) }
     override fun toggleAutoCap() = app.prefs.edit { putBoolean(Prefs.K.AUTOCAP, !settings.autoCap) }
     override fun togglePrivate() = app.prefs.edit { putBoolean(Prefs.K.PRIVATE, !settings.privateMode) }
+    override fun toggleLanguage(code: String) {
+        val next = if (code in settings.languages) settings.languages - code else settings.languages + code
+        if (next.isEmpty()) return // at least one language stays on
+        app.prefs.edit { putStringSet(Prefs.K.LANGUAGES, next) }
+    }
+
+    /** Activates the chosen languages; typing continues in all of them without switching. */
+    private fun applyLanguages() {
+        val eng = app.engine(0) ?: return
+        if (eng.setLanguages(settings.languages)) logic?.decoder?.beginWord()
+        val codes = eng.lm.packs.map { it.code.uppercase() }
+        keyboard?.spaceLabel = if (codes.size > 1) codes.joinToString(" · ") else ""
+    }
     override fun closePanel() { quickOpen = false; strip?.quickPanelOpen = false; showMode(if (mode == Mode.EMOJI) Mode.LETTERS else mode) }
 
     override fun openSettings(page: String) {
@@ -488,6 +520,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         settings = app.prefs.load()
         logic?.settings = settings.typing()
         strip?.privateMode = settings.privateMode
+        applyLanguages()
         applyAppearance()
         if (old.heightScale != settings.heightScale || old.spacingScale != settings.spacingScale) { if (!quickOpen && mode != Mode.EMOJI) showMode(mode) }
         if (quickOpen) bindQuick()

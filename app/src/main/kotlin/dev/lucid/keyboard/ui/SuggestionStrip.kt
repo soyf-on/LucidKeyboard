@@ -11,6 +11,7 @@ import android.text.TextPaint
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.graphics.ColorUtils
+import kotlin.math.min
 import dev.lucid.keyboard.core.input.StripState
 
 /**
@@ -28,13 +29,18 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
         fun onRemoveSuggestion(word: String)
         fun onQuickPanel()
         fun onHideKeyboard()
+        fun onEmojiShortcut()
+        fun onSwitchKeyboard()
+        fun onPunctuation(p: String)
     }
 
     var listener: Listener? = null
     var privateMode = false; set(v) { field = v; invalidate() }
     var quickPanelOpen = false; set(v) { field = v; invalidate() }
+    /** Show the keyboard-switch shortcut (Android asks IMEs to offer one on some setups). */
+    var showSwitch = false; set(v) { if (field != v) { field = v; rebuild() } }
 
-    private enum class Kind { LITERAL, CORRECTION, SUGGESTION, ACTION_LEARN, ACTION_NEVER, ACTION_BLOCK, ACTION_REVERT, CLOSE_MENU }
+    private enum class Kind { LITERAL, CORRECTION, SUGGESTION, ACTION_LEARN, ACTION_NEVER, ACTION_BLOCK, ACTION_REVERT, CLOSE_MENU, SHORTCUT_EMOJI, SHORTCUT_SWITCH, SHORTCUT_PUNCT }
     private data class Chip(val kind: Kind, val text: String, val word: String, val emphasis: Boolean = false)
 
     private var state = StripState()
@@ -45,9 +51,11 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
     private val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 16.5f * resources.displayMetrics.density }
     private val divider = Paint(Paint.ANTI_ALIAS_FLAG)
     private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val btnRect = RectF(); private val hideRect = RectF(); private val tmp = RectF()
+    private val btnRect = RectF(); private val hideRect = RectF(); private val tmp = RectF(); private val tmp2 = RectF()
     private var pressed = -1
     private val longPress = Runnable { onLongPress() }
+
+    init { rebuild() }
 
     fun setState(s: StripState) {
         if (s == state && menuFor == null) return
@@ -76,7 +84,14 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
             last != null -> listOf(
                 Chip(Kind.ACTION_REVERT, "↶ “${last.first}”", last.first),
             )
-            s.literal.isEmpty() -> emptyList()
+            // Nothing typed: shortcuts instead of an empty bar.
+            s.literal.isEmpty() -> listOfNotNull(
+                Chip(Kind.SHORTCUT_EMOJI, "", ""),
+                Chip(Kind.SHORTCUT_PUNCT, ",", ","),
+                Chip(Kind.SHORTCUT_PUNCT, "?", "?"),
+                Chip(Kind.SHORTCUT_PUNCT, "!", "!"),
+                if (showSwitch) Chip(Kind.SHORTCUT_SWITCH, "", "") else null,
+            )
             pendingFix != null -> listOfNotNull(
                 Chip(Kind.LITERAL, "“${s.literal}”", s.literal),
                 Chip(Kind.CORRECTION, pendingFix, pendingFix, true),
@@ -112,6 +127,21 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
         chips.forEachIndexed { i, chip ->
             val r = RectF(left + i * cw, 0f, left + (i + 1) * cw, h)
             chipRects += r
+            if (chip.kind == Kind.SHORTCUT_EMOJI || chip.kind == Kind.SHORTCUT_SWITCH || chip.kind == Kind.SHORTCUT_PUNCT) {
+                val bw = min(cw - 8 * d, 58 * d); val bh = h * 0.72f
+                tmp.set(r.centerX() - bw / 2, (h - bh) / 2, r.centerX() + bw / 2, (h + bh) / 2)
+                renderer.drawCap(c, tmp, CapStyle.FUNCTION, if (i == pressed) 1f else 0f, tmp.centerX(), tmp.centerY())
+                when (chip.kind) {
+                    Kind.SHORTCUT_EMOJI -> drawSmiley(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
+                    Kind.SHORTCUT_SWITCH -> drawGlobe(c, tmp.centerX(), tmp.centerY(), bh * 0.26f, p.label)
+                    else -> {
+                        text.textSize = 20 * d; text.typeface = Typeface.DEFAULT; text.color = p.label
+                        val fm = text.fontMetrics
+                        c.drawText(chip.text, tmp.centerX(), h / 2 - (fm.ascent + fm.descent) / 2, text)
+                    }
+                }
+                return@forEachIndexed
+            }
             if (chip.emphasis || i == pressed) {
                 tmp.set(r.left + 3 * d, r.top + 5 * d, r.right - 3 * d, r.bottom - 5 * d)
                 renderer.drawCap(c, tmp, CapStyle.LETTER, if (i == pressed) 1f else 0f, tmp.centerX(), tmp.centerY())
@@ -136,6 +166,23 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
             val kx = if (i == 0) x0 + (x1 - x0) * 0.3f else x0 + (x1 - x0) * 0.7f
             c.drawCircle(kx, y, 2.6f * d, icon)
         }
+    }
+
+    private fun drawSmiley(c: Canvas, cx: Float, cy: Float, r: Float, color: Int) {
+        icon.color = color; icon.strokeWidth = 1.5f * d
+        c.drawCircle(cx, cy, r, icon)
+        val f = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        c.drawCircle(cx - r * 0.35f, cy - r * 0.2f, r * 0.11f, f); c.drawCircle(cx + r * 0.35f, cy - r * 0.2f, r * 0.11f, f)
+        tmp2.set(cx - r * 0.5f, cy - r * 0.35f, cx + r * 0.5f, cy + r * 0.55f)
+        c.drawArc(tmp2, 20f, 140f, false, icon)
+    }
+
+    private fun drawGlobe(c: Canvas, cx: Float, cy: Float, r: Float, color: Int) {
+        icon.color = color; icon.strokeWidth = 1.4f * d
+        c.drawCircle(cx, cy, r, icon)
+        c.drawLine(cx - r, cy, cx + r, cy, icon)
+        tmp2.set(cx - r * 0.45f, cy - r, cx + r * 0.45f, cy + r)
+        c.drawOval(tmp2, icon)
     }
 
     private fun drawChevron(c: Canvas, r: RectF, color: Int) {
@@ -177,6 +224,9 @@ class SuggestionStrip(context: Context, private val renderer: GlassRenderer) : V
             Kind.ACTION_BLOCK -> { l.onRemoveSuggestion(chip.word); menuFor = null }
             Kind.ACTION_REVERT -> l.onPick(chip.word, true)
             Kind.CLOSE_MENU -> { menuFor = null; rebuild() }
+            Kind.SHORTCUT_EMOJI -> l.onEmojiShortcut()
+            Kind.SHORTCUT_SWITCH -> l.onSwitchKeyboard()
+            Kind.SHORTCUT_PUNCT -> l.onPunctuation(chip.text)
         }
     }
 

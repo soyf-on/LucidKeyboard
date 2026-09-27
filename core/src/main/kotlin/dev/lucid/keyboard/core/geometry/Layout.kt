@@ -76,11 +76,14 @@ data class LayoutParams(
     val sidePadding: Float,
     val topPadding: Float,
     val bottomPadding: Float,
-    val showSwitchImeKey: Boolean = false,
-    val showEmojiKey: Boolean = true,
+    /** Extra key beside space for URL ("/") or e-mail ("@") fields; null for normal text. */
+    val extraKey: String? = null,
 )
 
 object Layouts {
+    /** Alternate that opens the emoji panel instead of typing a character. */
+    const val EMOJI_ALTERNATE = "😊"
+
     private val TOP = "qwertyuiop"
     private val MID = "asdfghjkl"
     private val BOT = "zxcvbnm"
@@ -131,17 +134,22 @@ object Layouts {
         return finish("qwerty", keys, p, unit, keyW)
     }
 
+    /** Long-press on the period key: comma first (hold-and-release types it), then punctuation and emoji. */
+    val PERIOD_ALTERNATES = listOf(",", "?", "!", "'", "\"", ":", ";", "-", "…", EMOJI_ALTERNATE)
+
+    /**
+     * Clean bottom row, like iOS: mode key, space, period, return. Emoji, comma and the
+     * keyboard switcher live on long-presses and in the suggestion bar instead.
+     */
     private fun bottomRow(p: LayoutParams, unit: Float, y: Float, keys: MutableList<Key>, modeKind: KeyKind, modeLabel: String) {
         data class Spec(val kind: KeyKind, val out: String, val label: String, val units: Float, val lp: List<String> = emptyList())
         val specs = ArrayList<Spec>()
-        specs += Spec(modeKind, "", modeLabel, 1.25f)
-        if (p.showEmojiKey) specs += Spec(KeyKind.EMOJI, "", "emoji", 1.0f)
-        if (p.showSwitchImeKey) specs += Spec(KeyKind.SWITCH_IME, "", "globe", 1.0f)
-        specs += Spec(KeyKind.CHAR, ",", ",", 1.0f, listOf("'", "\"", ";", ":", "-", "!", "?"))
-        val fixed = specs.sumOf { it.units.toDouble() }.toFloat() + 1.0f + 1.5f
+        specs += Spec(modeKind, "", modeLabel, 1.5f)
+        p.extraKey?.let { specs += Spec(KeyKind.CHAR, it, it, 1.0f, if (it == "@") listOf(".", "_", "-") else listOf(".com", ".nl", ":", "-", "_")) }
+        val fixed = specs.sumOf { it.units.toDouble() }.toFloat() + 1.0f + 2.0f
         specs += Spec(KeyKind.SPACE, " ", "space", 10f - fixed)
-        specs += Spec(KeyKind.CHAR, ".", ".", 1.0f, listOf("?", "!", "'", "\"", "…", "-", "@", "#"))
-        specs += Spec(KeyKind.ENTER, "\n", "return", 1.5f)
+        specs += Spec(KeyKind.CHAR, ".", ".", 1.0f, PERIOD_ALTERNATES)
+        specs += Spec(KeyKind.ENTER, "\n", "return", 2.0f)
         var x = p.sidePadding
         for (s in specs) {
             keys += Key(s.kind, s.out, s.label, x + p.hGap / 2f, y, s.units * unit - p.hGap, p.rowHeight, 3, s.lp)

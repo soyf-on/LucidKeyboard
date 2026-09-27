@@ -30,7 +30,12 @@ data class GlassPalette(
     val keyTop: Int, val keyBottom: Int,
     val fnTop: Int, val fnBottom: Int,
     val accentTop: Int, val accentBottom: Int,
-    val rimBright: Int, val rimFaint: Int, val rimShade: Int,
+    /** Specular rim: bright on the upper-left, faint on the sides, lit again along the bottom. */
+    val rimBright: Int, val rimFaint: Int, val rimLow: Int,
+    /** Soft glow just inside the rim — reads as the thickness of the glass. */
+    val innerRim: Int,
+    /** Hairline outside the cap so key boundaries stay clear on any background. */
+    val outline: Int,
     val sheen: Int, val shadow: Int, val glow: Int,
     val label: Int, val labelSecondary: Int, val labelOnAccent: Int,
     val edgeHighlight: Int,
@@ -50,57 +55,63 @@ object GlassTheme {
         WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.primaryColor?.toArgb()
     }.getOrNull() else null
 
+    /**
+     * [t] = transparency 0..1. Keys are translucent glass over the (really blurred)
+     * backdrop; labels stay fully opaque, and a hairline outline keeps edges readable.
+     */
     fun palette(context: Context, s: Settings, tint: Int?): GlassPalette {
         val dark = isDark(context, s)
-        // Transparency 0..1; reduce-transparency pins it to (almost) opaque.
         val t = if (s.reduceTransparency) 0f else s.transparency.coerceIn(0f, 1f)
         val contrast = s.increaseContrast
         fun a(color: Int, alpha: Float) = ColorUtils.setAlphaComponent(color, (alpha.coerceIn(0f, 1f) * 255).roundToInt())
         fun tinted(base: Int, amount: Float) = if (tint == null || !s.wallpaperTint) base else ColorUtils.blendARGB(base, tint, amount)
+        val W = Color.WHITE; val B = Color.BLACK
 
         return if (!dark) {
-            val plateBase = tinted(Color.rgb(222, 226, 234), 0.14f)
+            val plateBase = tinted(Color.rgb(222, 226, 234), 0.12f)
             GlassPalette(
                 dark = false,
-                plateTop = a(ColorUtils.blendARGB(plateBase, Color.WHITE, 0.25f), 1f - 0.30f * t),
-                plateBottom = a(plateBase, 1f - 0.22f * t),
-                blurTint = a(tinted(Color.rgb(236, 238, 244), 0.10f), 0.78f - 0.40f * t),
-                keyTop = a(Color.WHITE, if (contrast) 1f else 0.94f - 0.30f * t),
-                keyBottom = a(Color.rgb(248, 249, 252), if (contrast) 1f else 0.80f - 0.30f * t),
-                fnTop = a(tinted(Color.rgb(196, 201, 212), 0.10f), if (contrast) 1f else 0.85f - 0.25f * t),
-                fnBottom = a(tinted(Color.rgb(182, 188, 200), 0.10f), if (contrast) 1f else 0.78f - 0.25f * t),
-                accentTop = Color.rgb(40, 132, 255), accentBottom = Color.rgb(10, 104, 240),
-                rimBright = a(Color.WHITE, 0.95f), rimFaint = a(Color.WHITE, 0.20f), rimShade = a(Color.rgb(60, 70, 90), 0.16f),
-                sheen = a(Color.WHITE, 0.55f), shadow = a(Color.rgb(40, 50, 80), 0.22f), glow = a(Color.WHITE, 0.85f),
-                label = if (contrast) Color.BLACK else Color.rgb(16, 18, 24),
-                labelSecondary = if (contrast) Color.rgb(20, 20, 20) else Color.rgb(90, 96, 110),
-                labelOnAccent = Color.WHITE,
-                edgeHighlight = a(Color.WHITE, 0.9f),
-                chip = a(Color.WHITE, 0.55f - 0.2f * t), chipActive = a(Color.WHITE, 0.95f),
-                chipLabel = Color.rgb(30, 34, 44), chipActiveLabel = Color.rgb(8, 10, 16),
-                contrastBorder = if (contrast) Color.BLACK else null,
+                plateTop = a(ColorUtils.blendARGB(plateBase, W, 0.3f), 1f - 0.18f * t),
+                plateBottom = a(plateBase, 1f - 0.12f * t),
+                blurTint = a(tinted(Color.rgb(242, 244, 248), 0.08f), 0.62f - 0.40f * t),
+                keyTop = a(W, if (contrast) 1f else 0.86f - 0.42f * t),
+                keyBottom = a(W, if (contrast) 1f else 0.72f - 0.40f * t),
+                fnTop = a(tinted(Color.rgb(200, 205, 216), 0.08f), if (contrast) 1f else 0.72f - 0.36f * t),
+                fnBottom = a(tinted(Color.rgb(186, 192, 205), 0.08f), if (contrast) 1f else 0.66f - 0.34f * t),
+                accentTop = Color.rgb(38, 132, 255), accentBottom = Color.rgb(8, 106, 245),
+                rimBright = a(W, 1f), rimFaint = a(W, 0.18f), rimLow = a(W, 0.62f),
+                innerRim = a(W, 0.45f), outline = a(Color.rgb(40, 50, 70), 0.10f),
+                sheen = a(W, 0.40f), shadow = a(Color.rgb(40, 50, 80), 0.07f), glow = a(W, 0.95f),
+                label = if (contrast) B else Color.rgb(12, 14, 20),
+                labelSecondary = if (contrast) Color.rgb(20, 20, 20) else Color.rgb(84, 90, 104),
+                labelOnAccent = W,
+                edgeHighlight = a(W, 0.95f),
+                chip = a(W, 0.45f - 0.2f * t), chipActive = a(W, 0.9f),
+                chipLabel = Color.rgb(28, 32, 42), chipActiveLabel = Color.rgb(8, 10, 16),
+                contrastBorder = if (contrast) B else null,
             )
         } else {
-            val plateBase = tinted(Color.rgb(22, 24, 30), 0.10f)
+            val plateBase = tinted(Color.rgb(24, 26, 32), 0.08f)
             GlassPalette(
                 dark = true,
-                plateTop = a(ColorUtils.blendARGB(plateBase, Color.rgb(60, 64, 76), 0.35f), 1f - 0.30f * t),
-                plateBottom = a(plateBase, 1f - 0.20f * t),
-                blurTint = a(tinted(Color.rgb(18, 20, 26), 0.08f), 0.70f - 0.35f * t),
-                keyTop = a(Color.rgb(112, 116, 128), if (contrast) 1f else 0.62f - 0.18f * t),
-                keyBottom = a(Color.rgb(84, 88, 100), if (contrast) 1f else 0.55f - 0.18f * t),
-                fnTop = a(Color.rgb(70, 74, 86), if (contrast) 1f else 0.60f - 0.16f * t),
-                fnBottom = a(Color.rgb(52, 56, 66), if (contrast) 1f else 0.55f - 0.16f * t),
-                accentTop = Color.rgb(48, 140, 255), accentBottom = Color.rgb(18, 108, 240),
-                rimBright = a(Color.WHITE, 0.42f), rimFaint = a(Color.WHITE, 0.06f), rimShade = a(Color.BLACK, 0.35f),
-                sheen = a(Color.WHITE, 0.16f), shadow = a(Color.BLACK, 0.45f), glow = a(Color.WHITE, 0.42f),
-                label = if (contrast) Color.WHITE else Color.rgb(246, 247, 250),
-                labelSecondary = if (contrast) Color.WHITE else Color.rgb(170, 176, 190),
-                labelOnAccent = Color.WHITE,
-                edgeHighlight = a(Color.WHITE, 0.30f),
-                chip = a(Color.WHITE, 0.10f), chipActive = a(Color.WHITE, 0.24f),
-                chipLabel = Color.rgb(220, 224, 232), chipActiveLabel = Color.WHITE,
-                contrastBorder = if (contrast) Color.WHITE else null,
+                plateTop = a(ColorUtils.blendARGB(plateBase, Color.rgb(58, 62, 74), 0.3f), 1f - 0.18f * t),
+                plateBottom = a(plateBase, 1f - 0.12f * t),
+                blurTint = a(tinted(Color.rgb(16, 18, 24), 0.06f), 0.62f - 0.36f * t),
+                keyTop = a(W, if (contrast) 0.35f else 0.26f - 0.12f * t),
+                keyBottom = a(W, if (contrast) 0.30f else 0.17f - 0.08f * t),
+                fnTop = a(W, if (contrast) 0.22f else 0.14f - 0.06f * t),
+                fnBottom = a(W, if (contrast) 0.18f else 0.09f - 0.04f * t),
+                accentTop = Color.rgb(44, 140, 255), accentBottom = Color.rgb(14, 110, 245),
+                rimBright = a(W, 0.62f), rimFaint = a(W, 0.06f), rimLow = a(W, 0.28f),
+                innerRim = a(W, 0.12f), outline = a(B, 0.30f),
+                sheen = a(W, 0.10f), shadow = a(B, 0.22f), glow = a(W, 0.40f),
+                label = W,
+                labelSecondary = if (contrast) W else Color.rgb(176, 182, 196),
+                labelOnAccent = W,
+                edgeHighlight = a(W, 0.38f),
+                chip = a(W, 0.08f), chipActive = a(W, 0.22f),
+                chipLabel = Color.rgb(222, 226, 234), chipActiveLabel = W,
+                contrastBorder = if (contrast) W else null,
             )
         }
     }
@@ -109,12 +120,15 @@ object GlassTheme {
 enum class CapStyle { LETTER, FUNCTION, ACCENT }
 
 /**
- * Draws glass key caps. The look is built from cues Apple describes for Liquid Glass
- * that we can render inside our own window: a translucent body, a bright specular rim
- * that is strongest on the upper-left edge, a darker lower rim (thickness), a soft
- * inner sheen, a contact shadow, and — on press — light that starts under the
- * fingertip and spreads. We cannot refract app content behind the keyboard: Android
- * never gives an IME those pixels (see docs/RESEARCH.md).
+ * Draws glass key caps, built from the cues Apple describes for Liquid Glass that can be
+ * rendered inside our own window:
+ *  - a see-through body over the compositor blur (real blur where the device allows it);
+ *  - a specular rim lit on the upper-left and again along the bottom, as light travels
+ *    through a curved slab, plus a soft inner edge glow that reads as thickness;
+ *  - a faint hairline outline so boundaries stay readable on any background;
+ *  - on press, light that starts under the fingertip and spreads, and a small lift.
+ * What cannot be done: bending (refracting) other apps' pixels — Android never gives a
+ * keyboard those pixels (see docs/RESEARCH.md).
  */
 class GlassRenderer(private val density: Float) {
     var palette: GlassPalette? = null
@@ -129,26 +143,32 @@ class GlassRenderer(private val density: Float) {
     private val bmpPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val path = Path()
     private val tmp = RectF()
+    private val tmp2 = RectF()
     private val shadowCache = HashMap<Long, Bitmap>()
 
     /** Gradients depend only on the cap rectangle and style; cache them so onDraw doesn't allocate. */
-    private class Shaders(val body: Shader, val sheen: Shader, val rim: Shader?)
-    private val shaderCache = HashMap<String, Shaders>()
+    private class Shaders(val body: Shader, val sheen: Shader, val rim: Shader, val inner: Shader)
+    private val shaderCache = HashMap<Long, Shaders>()
 
-    private fun shaders(rr: RectF, style: CapStyle, top: Int, bottom: Int, p: GlassPalette, sw: Float): Shaders {
-        val key = "${style.ordinal}:${rr.left.toInt()}:${rr.top.toInt()}:${rr.right.toInt()}:${rr.bottom.toInt()}"
-        return shaderCache.getOrPut(key) {
-            val half = sw / 2
+    private fun key(r: RectF, style: CapStyle): Long =
+        (r.left.toLong() shl 48) xor (r.top.toLong() shl 32) xor (r.right.toLong() shl 16) xor r.bottom.toLong() xor (style.ordinal.toLong() shl 60)
+
+    private fun shaders(r: RectF, style: CapStyle, top: Int, bottom: Int, p: GlassPalette): Shaders =
+        shaderCache.getOrPut(key(r, style)) {
+            val accent = style == CapStyle.ACCENT
             Shaders(
-                LinearGradient(0f, rr.top, 0f, rr.bottom, top, bottom, Shader.TileMode.CLAMP),
-                LinearGradient(0f, rr.top, 0f, rr.top + rr.height() * 0.55f, p.sheen, Color.TRANSPARENT, Shader.TileMode.CLAMP),
-                if (p.contrastBorder != null) null else LinearGradient(rr.left + half, rr.top + half, rr.right - half, rr.bottom - half,
-                    intArrayOf(p.rimBright, p.rimFaint, p.rimShade), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP),
+                LinearGradient(0f, r.top, 0f, r.bottom, top, bottom, Shader.TileMode.CLAMP),
+                LinearGradient(0f, r.top, 0f, r.top + r.height() * 0.5f, if (accent) ColorUtils.setAlphaComponent(Color.WHITE, 60) else p.sheen, Color.TRANSPARENT, Shader.TileMode.CLAMP),
+                // Diagonal: bright upper-left, faint across the middle, lit again at the lower edge.
+                LinearGradient(r.left, r.top, r.left + r.width() * 0.35f, r.bottom,
+                    intArrayOf(p.rimBright, p.rimFaint, p.rimFaint, p.rimLow), floatArrayOf(0f, 0.35f, 0.7f, 1f), Shader.TileMode.CLAMP),
+                LinearGradient(0f, r.top, 0f, r.bottom,
+                    intArrayOf(p.innerRim, Color.TRANSPARENT, Color.TRANSPARENT, ColorUtils.setAlphaComponent(p.innerRim, Color.alpha(p.innerRim) / 2)),
+                    floatArrayOf(0f, 0.3f, 0.75f, 1f), Shader.TileMode.CLAMP),
             )
         }
-    }
 
-    fun radiusFor(r: RectF) = min(r.width(), r.height()) * 0.27f
+    fun radiusFor(r: RectF) = min(r.width(), r.height()) * 0.34f
 
     private fun shadowBitmap(w: Int, h: Int, radius: Float): Bitmap {
         val key = (w.toLong() shl 32) or h.toLong()
@@ -156,89 +176,104 @@ class GlassRenderer(private val density: Float) {
             val pad = (6 * density).toInt()
             val bmp = Bitmap.createBitmap(w + 2 * pad, h + 2 * pad, Bitmap.Config.ALPHA_8)
             val c = Canvas(bmp)
-            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = BlurMaskFilter(3.2f * density, BlurMaskFilter.Blur.NORMAL) }
+            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { maskFilter = BlurMaskFilter(3.5f * density, BlurMaskFilter.Blur.NORMAL) }
             c.drawRoundRect(RectF(pad.toFloat(), pad.toFloat(), (pad + w).toFloat(), (pad + h).toFloat()), radius, radius, p)
             bmp
         }
     }
 
-    /**
-     * [press] 0..1 animates the lift and glow; ([glowX],[glowY]) is where the finger landed.
-     */
+    /** [press] 0..1 animates the lift and glow; ([glowX],[glowY]) is where the finger landed. */
     fun drawCap(c: Canvas, r: RectF, style: CapStyle, press: Float, glowX: Float, glowY: Float) {
         val p = palette ?: return
-        val radius = radiusFor(r)
         val (top, bottom) = when (style) {
             CapStyle.LETTER -> p.keyTop to p.keyBottom
             CapStyle.FUNCTION -> p.fnTop to p.fnBottom
             CapStyle.ACCENT -> p.accentTop to p.accentBottom
         }
         if (simple) {
+            val radius = radiusFor(r)
             body.shader = null
             body.color = if (press > 0.01f) ColorUtils.blendARGB(top, p.glow, 0.35f * press) else top
             c.drawRoundRect(r, radius, radius, body)
-            rim.shader = null; rim.strokeWidth = density * 0.8f; rim.color = p.contrastBorder ?: p.rimShade
+            rim.shader = null; rim.strokeWidth = density * 0.8f; rim.color = p.contrastBorder ?: p.outline
             c.drawRoundRect(r, radius, radius, rim)
             return
         }
-        // Lift: a pressed key grows very slightly and its shadow deepens (off with reduce motion).
+        // Lift: a pressed key swells a little (the "flex" of the material); off with reduce motion.
         val lift = if (reduceMotion) 0f else press
         val rr = tmp.apply { set(r) }
-        if (lift > 0f) { val g = density * 1.4f * lift; rr.inset(-g, -g) }
+        if (lift > 0f) { val g = density * 2.2f * lift; rr.inset(-g, -g * 0.8f) }
+        val radius = radiusFor(rr)
+        val sh = shaders(r, style, top, bottom, p)
 
-        // 1. contact shadow
-        val sb = shadowBitmap(r.width().roundToInt(), r.height().roundToInt(), radius)
-        val pad = 6 * density
-        bmpPaint.color = p.shadow
-        bmpPaint.alpha = (Color.alpha(p.shadow) * (1f + 0.6f * lift)).coerceAtMost(255f).toInt()
-        c.drawBitmap(sb, r.left - pad, r.top - pad + density * (1.2f + 1.5f * lift), bmpPaint)
+        // 1. soft contact shadow, deepening while lifted
+        if (Color.alpha(p.shadow) > 0) {
+            val sb = shadowBitmap(r.width().roundToInt(), r.height().roundToInt(), radiusFor(r))
+            val pad = 6 * density
+            bmpPaint.color = p.shadow
+            bmpPaint.alpha = (Color.alpha(p.shadow) * (1f + 2.5f * lift)).coerceAtMost(255f).toInt()
+            c.drawBitmap(sb, r.left - pad, r.top - pad + density * (1f + 2f * lift), bmpPaint)
+        }
 
-        val sw = density * (if (p.contrastBorder != null) 1.4f else 0.9f)
-        val sh = shaders(r, style, top, bottom, p, sw) // keyed on the static cap, not the animated one
-        // 2. body
+        // 2. outline hairline (boundary legibility)
+        rim.shader = null
+        rim.strokeWidth = density * 0.7f
+        rim.color = p.contrastBorder ?: p.outline
+        tmp2.set(rr); tmp2.inset(-density * 0.35f, -density * 0.35f)
+        c.drawRoundRect(tmp2, radius + density * 0.35f, radius + density * 0.35f, rim)
+
+        // 3. body
         body.shader = sh.body
         c.drawRoundRect(rr, radius, radius, body)
 
-        // 3. inner sheen on the upper half (light concentrated by the curved top)
         c.save()
         path.reset(); path.addRoundRect(rr, radius, radius, Path.Direction.CW)
         c.clipPath(path)
+        // 4. sheen concentrated in the upper half by the curved top
         sheenPaint.shader = sh.sheen
-        c.drawRect(rr.left, rr.top, rr.right, rr.top + rr.height() * 0.55f, sheenPaint)
-
-        // 4. touch glow: starts at the fingertip and spreads
+        c.drawRect(rr.left, rr.top, rr.right, rr.top + rr.height() * 0.5f, sheenPaint)
+        // 5. touch light: starts at the fingertip and spreads with the press
         if (press > 0.01f) {
-            val gr = max(rr.width(), rr.height()) * (0.55f + 0.65f * press)
-            glowPaint.shader = RadialGradient(glowX, glowY, gr, ColorUtils.setAlphaComponent(p.glow, (Color.alpha(p.glow) * press).toInt()), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            val gr = max(rr.width(), rr.height()) * (0.45f + 0.8f * press)
+            glowPaint.shader = RadialGradient(glowX, glowY, gr, ColorUtils.setAlphaComponent(p.glow, (Color.alpha(p.glow) * 0.8f * press).toInt()), Color.TRANSPARENT, Shader.TileMode.CLAMP)
             c.drawRect(rr, glowPaint)
         }
         c.restore()
 
-        // 5. specular rim: bright upper-left, fading toward lower-right; a faint shade below
-        rim.strokeWidth = sw
-        val half = sw / 2
-        tmp.set(rr.left + half, rr.top + half, rr.right - half, rr.bottom - half)
-        if (p.contrastBorder != null) {
-            rim.shader = null; rim.color = p.contrastBorder
-        } else {
+        // 6. inner edge glow (thickness) and 7. specular rim
+        if (p.contrastBorder == null) {
+            rim.shader = sh.inner
+            rim.strokeWidth = density * 2.2f
+            tmp2.set(rr); tmp2.inset(density * 1.6f, density * 1.6f)
+            c.drawRoundRect(tmp2, max(0f, radius - density * 1.6f), max(0f, radius - density * 1.6f), rim)
             rim.shader = sh.rim
+        } else {
+            rim.shader = null; rim.color = p.contrastBorder
         }
-        c.drawRoundRect(tmp, radius - half, radius - half, rim)
+        rim.strokeWidth = density * 1.0f
+        tmp2.set(rr); tmp2.inset(density * 0.5f, density * 0.5f)
+        c.drawRoundRect(tmp2, radius - density * 0.5f, radius - density * 0.5f, rim)
     }
 
-    /** Keyboard base plate (used when the system blur is unavailable or disabled). */
+    /** Keyboard base plate. Over a real compositor blur it only adds the lit top edge. */
     fun drawPlate(c: Canvas, w: Float, h: Float, cornerRadius: Float, overBlur: Boolean) {
         val p = palette ?: return
-        // Over a real compositor blur the window background already carries the tint.
         if (!overBlur) {
             body.shader = LinearGradient(0f, 0f, 0f, h, p.plateTop, p.plateBottom, Shader.TileMode.CLAMP)
             tmp.set(0f, 0f, w, h + cornerRadius)
             c.drawRoundRect(tmp, cornerRadius, cornerRadius, body)
         }
-        // Specular top edge.
-        rim.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(Color.TRANSPARENT, p.edgeHighlight, p.edgeHighlight, Color.TRANSPARENT), floatArrayOf(0f, 0.2f, 0.8f, 1f), Shader.TileMode.CLAMP)
+        rim.shader = LinearGradient(0f, 0f, w, 0f, intArrayOf(Color.TRANSPARENT, p.edgeHighlight, p.edgeHighlight, Color.TRANSPARENT), floatArrayOf(0f, 0.15f, 0.85f, 1f), Shader.TileMode.CLAMP)
         rim.strokeWidth = density
         tmp.set(density / 2, density / 2, w - density / 2, h + cornerRadius)
         c.drawRoundRect(tmp, cornerRadius, cornerRadius, rim)
     }
+}
+
+/** Largest text size ≤ [maxPx] at which [text] fits in [maxWidth] px (labels never touch the key edge). */
+fun fitTextSize(paint: Paint, text: String, maxWidth: Float, maxPx: Float, minPx: Float = maxPx * 0.55f): Float {
+    paint.textSize = maxPx
+    val w = paint.measureText(text)
+    if (w <= maxWidth || w == 0f) return maxPx
+    return max(minPx, maxPx * maxWidth / w)
 }

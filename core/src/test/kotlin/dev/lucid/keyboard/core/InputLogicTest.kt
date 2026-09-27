@@ -275,6 +275,16 @@ class InputLogicTest {
         assertTrue(v.allWords().isEmpty())
     }
 
+    @Test fun `bar punctuation attaches to the previous word`() {
+        val e = engine()
+        e.typeCentered("hello ")
+        e.logic.onPunctuationShortcut(",")
+        e.typeCentered("world")
+        e.logic.onPunctuationShortcut("!")
+        assertEquals("Hello, world! ", e.editor.text)
+        assertEquals(ShiftState.AUTO, e.logic.shift)
+    }
+
     @Test fun `single letters and digit-only strings are never learned implicitly`() {
         val user = UserVocabulary()
         val e = engine(user, TypingSettings(correction = CorrectionMode.OFF))

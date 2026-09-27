@@ -27,7 +27,7 @@ data class Settings(
     val privateMode: Boolean = false,
     // Appearance
     val theme: ThemeMode = ThemeMode.SYSTEM,
-    val transparency: Float = 0.5f,
+    val transparency: Float = 0.7f,
     val systemBlur: Boolean = true,
     val heightScale: Float = 1.0f,
     val spacingScale: Float = 1.0f,
@@ -39,6 +39,9 @@ data class Settings(
     val haptics: Haptics = Haptics.LIGHT,
     val sound: Boolean = false,
     val wallpaperTint: Boolean = true,
+    val digitHints: Boolean = false,
+    /** Active languages, typed together without switching. */
+    val languages: Set<String> = setOf("en", "nl"),
 ) {
     fun typing() = TypingSettings(
         decoder = DecoderSettings(adaptive = adaptive, strength = strength.toDouble(), personalOffsets = personalOffsets),
@@ -68,7 +71,7 @@ class Prefs(context: Context) {
         learnWords = sp.getBoolean(K.LEARN_WORDS, true),
         privateMode = sp.getBoolean(K.PRIVATE, false),
         theme = runCatching { ThemeMode.valueOf(sp.getString(K.THEME, "SYSTEM")!!) }.getOrDefault(ThemeMode.SYSTEM),
-        transparency = sp.getFloat(K.TRANSPARENCY, 0.5f),
+        transparency = sp.getFloat(K.TRANSPARENCY, 0.7f),
         systemBlur = sp.getBoolean(K.BLUR, true),
         heightScale = sp.getFloat(K.HEIGHT, 1.0f),
         spacingScale = sp.getFloat(K.SPACING, 1.0f),
@@ -80,6 +83,8 @@ class Prefs(context: Context) {
         haptics = runCatching { Haptics.valueOf(sp.getString(K.HAPTICS, "LIGHT")!!) }.getOrDefault(Haptics.LIGHT),
         sound = sp.getBoolean(K.SOUND, false),
         wallpaperTint = sp.getBoolean(K.WALLPAPER_TINT, true),
+        digitHints = sp.getBoolean(K.DIGIT_HINTS, false),
+        languages = (sp.getStringSet(K.LANGUAGES, null) ?: setOf("en", "nl")).ifEmpty { setOf("en") },
     )
 
     fun edit(block: SharedPreferences.Editor.() -> Unit) = sp.edit().apply(block).apply()
@@ -94,5 +99,6 @@ class Prefs(context: Context) {
         const val CONTRAST = "contrast"; const val SIMPLE = "simple_rendering"; const val POPUPS = "key_popups"
         const val HAPTICS = "haptics"; const val SOUND = "sound"; const val WALLPAPER_TINT = "wallpaper_tint"
         const val RECENT_EMOJI = "recent_emoji"; const val CALIBRATED = "calibrated"
+        const val DIGIT_HINTS = "digit_hints"; const val LANGUAGES = "languages"
     }
 }

@@ -35,9 +35,9 @@ class GlassButton(context: Context, private val renderer: GlassRenderer, var lab
         r.set(2 * d, 3 * d, width - 2 * d, height - 3 * d)
         renderer.drawCap(c, r, if (selected2) CapStyle.ACCENT else CapStyle.LETTER, if (down) 1f else 0f, r.centerX(), r.centerY())
         paint.color = if (selected2) p.labelOnAccent else p.label
-        paint.textSize = textSizeSp * d
         paint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        val t = TextUtils.ellipsize(label, paint, width - 12 * d, TextUtils.TruncateAt.END).toString()
+        paint.textSize = fitTextSize(paint, label, width - 20 * d, textSizeSp * d)
+        val t = TextUtils.ellipsize(label, paint, width - 16 * d, TextUtils.TruncateAt.END).toString()
         val fm = paint.fontMetrics
         c.drawText(t, r.centerX(), r.centerY() - (fm.ascent + fm.descent) / 2, paint)
     }
@@ -62,6 +62,7 @@ class QuickPanel(context: Context, renderer: GlassRenderer, private val actions:
     interface Actions {
         fun setCorrection(m: CorrectionMode)
         fun toggleAdaptive(); fun toggleSuggestions(); fun toggleAutoCap(); fun togglePrivate()
+        fun toggleLanguage(code: String)
         fun openSettings(page: String)
         fun closePanel()
     }
@@ -74,6 +75,9 @@ class QuickPanel(context: Context, renderer: GlassRenderer, private val actions:
     private val suggestions = GlassButton(context, renderer, "Suggestions") { actions.toggleSuggestions() }
     private val autoCap = GlassButton(context, renderer, "Auto-caps") { actions.toggleAutoCap() }
     private val privateMode = GlassButton(context, renderer, "Private mode") { actions.togglePrivate() }
+    private val langButtons = dev.lucid.keyboard.core.lm.ModelBundle.LANGUAGES.associateWith { code ->
+        GlassButton(context, renderer, dev.lucid.keyboard.core.lm.ModelBundle.NAMES[code] ?: code) { actions.toggleLanguage(code) }
+    }
     private val title = TextView(context)
 
     init {
@@ -86,6 +90,7 @@ class QuickPanel(context: Context, renderer: GlassRenderer, private val actions:
         addView(row(modeButtons.values.toList()))
         addView(row(listOf(adaptive, suggestions)))
         addView(row(listOf(autoCap, privateMode)))
+        addView(row(langButtons.values.toList()))
         addView(row(listOf(
             GlassButton(context, renderer, "Dictionary") { actions.openSettings("dictionary") },
             GlassButton(context, renderer, "Settings") { actions.openSettings("home") },
@@ -95,10 +100,11 @@ class QuickPanel(context: Context, renderer: GlassRenderer, private val actions:
 
     private fun row(views: List<View>) = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        for (v in views) addView(v, LayoutParams(0, (46 * d).toInt(), 1f))
+        for (v in views) addView(v, LayoutParams(0, (42 * d).toInt(), 1f))
     }
 
-    fun bind(mode: CorrectionMode, adaptiveOn: Boolean, suggestionsOn: Boolean, autoCapOn: Boolean, privateOn: Boolean, labelColor: Int) {
+    fun bind(mode: CorrectionMode, adaptiveOn: Boolean, suggestionsOn: Boolean, autoCapOn: Boolean, privateOn: Boolean, languages: Set<String>, labelColor: Int) {
+        langButtons.forEach { (c, b) -> b.selected2 = c in languages }
         modeButtons.forEach { (m, b) -> b.selected2 = m == mode }
         adaptive.selected2 = adaptiveOn; suggestions.selected2 = suggestionsOn
         autoCap.selected2 = autoCapOn; privateMode.selected2 = privateOn

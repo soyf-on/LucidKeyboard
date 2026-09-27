@@ -95,6 +95,7 @@ private fun App(page: String, go: (String) -> Unit) {
             "appearance" -> Page("Appearance", go) { AppearanceScreen() }
             "privacy" -> Page("Privacy", go) { PrivacyScreen() }
             "about" -> Page("About & licences", go) { AboutScreen() }
+            "languages" -> Page("Languages", go) { LanguagesScreen() }
             else -> Page("Lucid Keyboard", null) { HomeScreen(go) }
         }
     }
@@ -154,6 +155,7 @@ private fun HomeScreen(go: (String) -> Unit) {
     SectionTitle("KEYBOARD")
     GlassCard {
         NavRow("Typing accuracy", if (s.adaptive) "Adaptive targets on · strength ${(s.strength * 100).toInt()}%" else "Adaptive targets off") { go("typing") }
+        NavRow("Languages", s.languages.sortedBy { dev.lucid.keyboard.core.lm.ModelBundle.LANGUAGES.indexOf(it) }.joinToString(" + ") { dev.lucid.keyboard.core.lm.ModelBundle.NAMES[it] ?: it }) { go("languages") }
         NavRow("Autocorrect", s.correction.name.lowercase().replaceFirstChar { it.uppercase() }) { go("correction") }
         NavRow("Dictionary", "Your words, replacements, blocked suggestions") { go("dictionary") }
         NavRow("Appearance", "Glass, height, spacing, haptics") { go("appearance") }
@@ -205,6 +207,25 @@ private fun TypingScreen(go: (String) -> Unit) {
         title = { Text("Reset touch model?") },
         text = { Text("Forgets how you personally tap (portrait and landscape). Your vocabulary is not affected.") },
     )
+}
+
+// ---- Languages -----------------------------------------------------------------------------------
+
+@Composable
+private fun LanguagesScreen() {
+    val ctx = LocalContext.current
+    val s = rememberSettings()
+    SectionTitle("TYPE IN")
+    GlassCard {
+        for (code in dev.lucid.keyboard.core.lm.ModelBundle.LANGUAGES) {
+            val on = code in s.languages
+            ToggleRow(dev.lucid.keyboard.core.lm.ModelBundle.NAMES[code] ?: code, null, on, enabled = !(on && s.languages.size == 1)) { v ->
+                edit(ctx) { putStringSet(Prefs.K.LANGUAGES, if (v) s.languages + code else s.languages - code) }
+            }
+        }
+        Body("All selected languages work at the same time — no switching. The keyboard follows which language you are writing in, word by word, so predictions and corrections match. A word that is valid in any selected language is never corrected into another language.")
+        Body("Dutch: accents are restored from the dictionary (ideeen → ideeën), and “IJ” is capitalised together (IJs, IJsland). Long-press e, i, o, u for ë, é, ï and other accents.")
+    }
 }
 
 // ---- Autocorrect --------------------------------------------------------------------------------

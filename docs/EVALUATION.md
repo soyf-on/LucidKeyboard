@@ -22,25 +22,25 @@ real-world typing. Use the in-app Practice screen to compare modes on your own t
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 16410 | 4.34% | 0 | 0 |
-| Adaptive 0.4 | 16410 | 2.81% | 16 | 268 |
-| Adaptive 0.7 (default) | 16410 | 2.15% | 24 | 384 |
-| Adaptive 1.0 | 16410 | 1.84% | 43 | 454 |
+| Adaptive 0.4 | 16410 | 2.82% | 17 | 267 |
+| Adaptive 0.7 (default) | 16410 | 2.18% | 24 | 380 |
+| Adaptive 1.0 | 16410 | 1.88% | 43 | 447 |
 
 **Fast / sloppy typist (σx=0.32, σy=0.28, downward bias 0.08)**
 
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 16410 | 14.38% | 0 | 0 |
-| Adaptive 0.4 | 16410 | 11.28% | 52 | 561 |
-| Adaptive 0.7 (default) | 16410 | 9.63% | 76 | 855 |
-| Adaptive 1.0 | 16410 | 8.29% | 103 | 1103 |
+| Adaptive 0.4 | 16410 | 11.24% | 50 | 566 |
+| Adaptive 0.7 (default) | 16410 | 9.59% | 73 | 860 |
+| Adaptive 1.0 | 16410 | 8.32% | 103 | 1097 |
 
 **Careful typist (σx=0.17, σy=0.15)**
 
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 16410 | 0.37% | 0 | 0 |
-| Adaptive 0.4 | 16410 | 0.18% | 0 | 30 |
+| Adaptive 0.4 | 16410 | 0.19% | 0 | 29 |
 | Adaptive 0.7 (default) | 16410 | 0.09% | 3 | 48 |
 | Adaptive 1.0 | 16410 | 0.08% | 5 | 52 |
 
@@ -82,7 +82,7 @@ These are where a language prior can *hurt*. The goal is no increase in errors.
 | Fixed (visible keys) | 290 | 4.83% | 0 | 0 |
 | Adaptive 0.4 | 290 | 4.14% | 0 | 2 |
 | Adaptive 0.7 (default) | 290 | 3.45% | 0 | 4 |
-| Adaptive 1.0 | 290 | 3.79% | 3 | 6 |
+| Adaptive 1.0 | 290 | 3.79% | 2 | 5 |
 
 **Deliberate unusual strings (qwerty, xkcd, qajaq, jjjj…) — careful aim**
 
@@ -111,9 +111,9 @@ Every letter tap placed exactly a fraction *f* of the way toward a same-row neig
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 1734 | 80.28% | 0 | 0 |
-| Adaptive 0.4 | 1734 | 21.05% | 0 | 1027 |
-| Adaptive 0.7 (default) | 1734 | 14.19% | 0 | 1146 |
-| Adaptive 1.0 | 1734 | 12.57% | 0 | 1174 |
+| Adaptive 0.4 | 1734 | 20.99% | 0 | 1028 |
+| Adaptive 0.7 (default) | 1734 | 14.13% | 0 | 1147 |
+| Adaptive 1.0 | 1734 | 12.51% | 0 | 1175 |
 
 **f = 0.6 (clearly on the neighbour)**
 
@@ -121,23 +121,23 @@ Every letter tap placed exactly a fraction *f* of the way toward a same-row neig
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 1734 | 80.28% | 0 | 0 |
 | Adaptive 0.4 | 1734 | 80.28% | 0 | 0 |
-| Adaptive 0.7 (default) | 1734 | 45.04% | 0 | 611 |
-| Adaptive 1.0 | 1734 | 34.14% | 0 | 800 |
+| Adaptive 0.7 (default) | 1734 | 44.81% | 0 | 615 |
+| Adaptive 1.0 | 1734 | 33.97% | 0 | 803 |
 
 ## 4. Learning a systematic personal offset
 
 Typist aims 0.16 pitch right and 0.24 pitch low (σx=0.22, σy=0.2). 
 Trained by typing 60 sentences through the full pipeline (Balanced autocorrect, learning only from confirmed words); 
-evaluated on the other 36. Samples accepted: 1512. Learned global offset: dx=0.155, dy=0.233 (true 0.16, 0.24); key 'f' mean after shrinkage: (0.124, 0.240).
+evaluated on the other 36. Samples accepted: 1468. Learned global offset: dx=0.155, dy=0.231 (true 0.16, 0.24); key 'f' mean after shrinkage: (0.123, 0.235).
 
 **Held-out sentences**
 
 | Decoder | Taps | Char error rate | Unwanted substitutions | Rescues |
 |---|---:|---:|---:|---:|
 | Fixed (visible keys) | 6015 | 12.10% | 0 | 0 |
-| Adaptive 0.7, no personal model | 6015 | 6.63% | 21 | 350 |
-| Adaptive 0.7 + learned offsets | 6015 | 2.63% | 24 | 594 |
-| Offsets only (strength 0) | 6015 | 3.87% | 53 | 548 |
+| Adaptive 0.7, no personal model | 6015 | 6.88% | 21 | 335 |
+| Adaptive 0.7 + learned offsets | 6015 | 3.03% | 23 | 569 |
+| Offsets only (strength 0) | 6015 | 4.24% | 54 | 527 |
 
 ## 5. Full pipeline: decoding + word autocorrect
 
@@ -152,8 +152,8 @@ Comparing the Fixed and Adaptive rows shows whether the two stages amplify each 
 | Fixed | strong | 846 | 85.1% | 0 | 312 |
 | Adaptive 0.7 | off | 846 | 63.4% | 0 | 0 |
 | Adaptive 0.7 | gentle | 846 | 83.0% | 0 | 166 |
-| Adaptive 0.7 | balanced | 846 | 85.6% | 0 | 188 |
-| Adaptive 0.7 | strong | 846 | 87.0% | 0 | 200 |
+| Adaptive 0.7 | balanced | 846 | 85.5% | 0 | 187 |
+| Adaptive 0.7 | strong | 846 | 86.9% | 0 | 199 |
 
 Slang and names (the words themselves, 3 seeds, everyday typist):
 
@@ -177,14 +177,14 @@ Everyday typist, 3 seeds. The key column is *false corrections*: correctly typed
 |---|---|---|---:|---:|---:|---:|
 | Dutch | Fixed | off | 363 | 81.3% | 0 | 0 |
 | Dutch | Fixed | balanced | 363 | 93.9% | 0 | 46 |
-| Dutch | Adaptive 0.7 | off | 363 | 89.3% | 0 | 0 |
-| Dutch | Adaptive 0.7 | balanced | 363 | 95.6% | 0 | 23 |
+| Dutch | Adaptive 0.7 | off | 363 | 89.0% | 0 | 0 |
+| Dutch | Adaptive 0.7 | balanced | 363 | 95.3% | 0 | 23 |
 | Mixed NL/EN | Fixed | off | 231 | 81.4% | 0 | 0 |
 | Mixed NL/EN | Fixed | balanced | 231 | 93.1% | 0 | 27 |
 | Mixed NL/EN | Adaptive 0.7 | off | 231 | 90.5% | 0 | 0 |
 | Mixed NL/EN | Adaptive 0.7 | balanced | 231 | 94.8% | 0 | 10 |
 | English | Fixed | off | 456 | 82.2% | 0 | 0 |
 | English | Fixed | balanced | 456 | 94.7% | 0 | 57 |
-| English | Adaptive 0.7 | off | 456 | 90.8% | 0 | 0 |
-| English | Adaptive 0.7 | balanced | 456 | 95.6% | 0 | 22 |
+| English | Adaptive 0.7 | off | 456 | 91.0% | 0 | 0 |
+| English | Adaptive 0.7 | balanced | 456 | 95.6% | 0 | 21 |
 
