@@ -18,6 +18,7 @@ tasks.test {
     systemProperty("lexicon.dir", rootProject.file("lexicon").absolutePath)
     systemProperty("report.dir", rootProject.file("docs").absolutePath)
     maxHeapSize = "2g"
+    if (project.hasProperty("fit")) systemProperty("fit", "1")
 }
 
 // Compiles lexicon/*.tsv into the compact binary assets the keyboard loads.

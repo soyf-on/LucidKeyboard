@@ -100,8 +100,14 @@ python tools/build_lexicon.py /path/to/unmunched-scowl.txt   # see header of the
   symbols, long-press (hold m → "?"), emoji panel and search, quick panel, dark theme,
   landscape, slide to type ("hello world keyboard"), persistence, private mode, settings.
 
+* **Slide to type** on realistic simulated swipes (curved, corner-cutting, sloppy middle
+  letters): with the previous word as context, the right word is first 93 % (English) /
+  90 % (Dutch) of the time and in the top 3 99 % / 96 %; without context, 78 % first.
+  Channel weights are fitted on English and validated on held-out English and Dutch
+  (`GestureFitTest`). Simulated, not measured on real swipes.
+
 Measured timings on a desktop x86 CPU (emulator or JVM, **not the phone**): tap decision
-≈5 µs; word correction 0.5–0.8 ms; slide-to-type decoding ≈4 ms; model load 62 ms.
+≈5 µs; word correction 0.5–0.8 ms; slide-to-type decoding ≈5 ms; model load 62 ms.
 
 ## Limitations
 

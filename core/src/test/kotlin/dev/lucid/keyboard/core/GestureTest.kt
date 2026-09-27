@@ -26,17 +26,21 @@ class GestureTest {
         return pts
     }
 
-    @Test fun `swiped words decode in English and Dutch`() {
+    @Test fun `realistic swipes decode in English and Dutch`() {
+        // Human-like paths (curved, corner-cutting, sloppy middles); words not used for fitting weights.
         val dec = GestureDecoder(Fixtures.lm(langs = listOf("en", "nl")))
-        val rng = Random(5)
-        val words = listOf("hello", "keyboard", "tomorrow", "because", "gezellig", "morgen", "the", "thanks", "fiets", "werken")
-        var hits = 0
-        for (w in words) repeat(5) {
-            val r = dec.decode(layout, swipe(w, rng), null)
-            if (r.firstOrNull()?.word?.lowercase() == w) hits++ else println("MISS $w -> ${r.take(3).map { "${it.word}:${"%.2f".format(it.distance)}:${"%.1f".format(it.score)}" }}")
+        for ((file, seed) in listOf("sentences.txt" to 1234L, "sentences_nl.txt" to 99L)) {
+            val rng = Random(seed)
+            val words = SwipeSim.words(file).shuffled(Random(seed)).take(80)
+            var top1 = 0; var top3 = 0
+            for (w in words) {
+                val r = dec.decode(layout, SwipeSim.path(w, rng), null, 3).map { it.word.lowercase() }
+                if (r.firstOrNull() == w) top1++; if (w in r) top3++
+            }
+            println("gesture $file top1 ${100 * top1 / words.size}% top3 ${100 * top3 / words.size}%")
+            assertTrue("$file top1=$top1/${words.size}", top1 >= words.size * 0.68)
+            assertTrue("$file top3=$top3/${words.size}", top3 >= words.size * 0.85)
         }
-        println("gesture top-1: $hits / ${words.size * 5}")
-        assertTrue("top-1 hits $hits", hits >= words.size * 5 * 0.8)
     }
 
     @Test fun `context resolves similar shapes`() {
@@ -63,12 +67,12 @@ class GestureTest {
     @Test fun `decoding is fast enough`() {
         val dec = GestureDecoder(Fixtures.lm(langs = listOf("en", "nl")))
         dec.warmUp()
-        val path = swipe("keyboard", Random(2))
-        repeat(3) { dec.decode(layout, path, null) }
+        val paths = listOf("keyboard", "because", "tomorrow", "the", "gezellig").map { SwipeSim.path(it, Random(2)) }
+        repeat(3) { paths.forEach { dec.decode(layout, it, null) } }
         val t0 = System.nanoTime()
-        repeat(10) { dec.decode(layout, path, null) }
-        val ms = (System.nanoTime() - t0) / 1e6 / 10
+        repeat(4) { paths.forEach { dec.decode(layout, it, null) } }
+        val ms = (System.nanoTime() - t0) / 1e6 / (4 * paths.size)
         println("gesture decode: %.1f ms (desktop JVM)".format(ms))
-        assertTrue(ms < 80)
+        assertTrue(ms < 60)
     }
 }

@@ -6,19 +6,40 @@ import dev.lucid.keyboard.core.lm.LanguageModel
 import dev.lucid.keyboard.core.lm.Lexicon
 import dev.lucid.keyboard.core.touch.TouchPoint
 import kotlin.math.hypot
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sqrt
 
 /**
- * Slide-to-type decoder (shape matching in the spirit of SHARK², Kristensson & Zhai 2004).
+ * Slide-to-type decoder, after SHARK² (Kristensson & Zhai 2004) and later work on how
+ * real gesture paths look (they cut corners, vary speed, and miss the middle letters).
  *
- * The finger path and each candidate word's ideal path (straight lines through its key
- * centres) are resampled to [N] equidistant points; the mean point-to-point distance,
- * in key pitches, is the location match. Candidates come from words whose first and
- * last letters are near the path's start and end, in every active language. The final
- * score adds log P(word | previous word) so context breaks ties between similar shapes.
+ * Each candidate word's template is the polyline through its key centres. A swipe is
+ * scored against it with several channels plus the language model:
+ *  - location: average closest distance between the two paths, both ways — tolerant of
+ *    speed changes and corner cutting;
+ *  - shape: the two paths normalised for position and size and compared point by point in
+ *    order — this is what separates "top" from "pot";
+ *  - coverage: how far the path stays from each of the word's letters (beyond a tolerance);
+ *  - length: a long swipe should not match a short word (and vice versa);
+ *  - start/end: people start and finish closer to the first and last letter.
+ * Candidates are words whose first and last letters are near the path's ends, in every
+ * active language, plus the user's own words.
  */
 class GestureDecoder(private val lm: LanguageModel) {
 
     data class Result(val word: String, val score: Double, val distance: Double)
+
+    /**
+     * Weights of the scoring channels (log-likelihood scale), fitted on realistic simulated
+     * swipes (see GestureFitTest). Order matches [features].
+     */
+    data class Weights(val w: DoubleArray = FITTED) {
+        override fun equals(other: Any?) = other is Weights && w.contentEquals(other.w)
+        override fun hashCode() = w.contentHashCode()
+    }
+    var weights = Weights()
 
     /** Per-lexicon index: (first symbol, last symbol) -> word ids, most frequent first. */
     private val index = HashMap<Lexicon, Array<IntArray>>()
@@ -44,93 +65,169 @@ class GestureDecoder(private val lm: LanguageModel) {
     /** Builds indexes ahead of the first gesture (call from a background thread at startup). */
     fun warmUp() { for (p in lm.packs) indexFor(p.lexicon) }
 
-    fun decode(layout: KeyboardLayout, path: List<TouchPoint>, prev: String?, limit: Int = 5): List<Result> {
-        if (path.size < 2) return emptyList()
-        val ux = layout.unitW; val uy = layout.unitH
-        val user = resample(path.map { floatArrayOf(it.x / ux, it.y / uy) }, N)
-        val first = user[0]; val last = user[N - 1]
-        fun nearKeys(pt: FloatArray): List<Int> = layout.letterKeys
-            .map { k -> Alphabet.index(k.char) to hypot(k.cx / ux - pt[0], k.cy / uy - pt[1]) }
-            .filter { it.second < END_RADIUS }.sortedBy { it.second }.take(4).map { it.first }
-        val starts = nearKeys(first); val ends = nearKeys(last)
-        val centers = HashMap<Int, FloatArray>()
-        for (k in layout.letterKeys) centers[Alphabet.index(k.char)] = floatArrayOf(k.cx / ux, k.cy / uy)
+    /** The user's swipe, preprocessed once. */
+    private class UserPath(val pts: List<FloatArray>, val norm: List<FloatArray>, val length: Double)
 
+    fun decode(layout: KeyboardLayout, path: List<TouchPoint>, prev: String?, limit: Int = 5): List<Result> {
         val best = HashMap<String, Result>()
-        for (pack in lm.packs) {
-            val lex = pack.lexicon
-            val idx = indexFor(lex)
-            for (s in starts) for (e in ends) for (id in idx[s * 26 + e]) {
-                val word = lex.cased(id)
-                val pts = ArrayList<FloatArray>(word.length)
-                var lastSym = -1
-                var ok = true
-                for (c in word) {
-                    val sym = Alphabet.index(c)
-                    if (sym !in 0..25) { if (sym == Alphabet.APOS) continue; ok = false; break }
-                    if (sym == lastSym) continue // double letters are one point on the path
-                    pts += centers[sym] ?: run { ok = false; null } ?: break
-                    lastSym = sym
-                }
-                if (!ok || pts.isEmpty()) continue
-                val ideal = if (pts.size == 1) List(N) { pts[0] } else resample(pts, N)
-                val (dist, shape) = match(ideal, user)
-                if (dist > MAX_MEAN_DIST) continue
-                val lp = lm.wordLogProb(word.lowercase(), prev) ?: continue
-                val score = shape + LM_WEIGHT * lp
-                val key = word.lowercase()
-                val old = best[key]
-                if (old == null || old.score < score) best[key] = Result(lm.casedForm(key), score, dist)
-            }
-        }
-        // Personal words (not in the static dictionaries).
-        for (uw in lm.user.activeWords()) {
-            val w = uw.word
-            if (w.length < 2 || lm.inLexicon(w.lowercase())) continue
-            val f = Alphabet.index(w[0]); val l = Alphabet.index(w[w.length - 1])
-            if (f !in starts || l !in ends) continue
-            val pts = w.mapNotNull { centers[Alphabet.index(it)] }
-            if (pts.size < 2) continue
-            val ideal = resample(pts, N)
-            val (dist, shape) = match(ideal, user)
-            val lp = lm.wordLogProb(w.lowercase(), prev) ?: continue
-            if (dist <= MAX_MEAN_DIST) best[w.lowercase()] = Result(w, shape + LM_WEIGHT * lp, dist)
+        val w = weights.w
+        forEachCandidate(layout, path, prev) { key, f ->
+            var total = 0.0
+            for (i in f.indices) total += w[i] * f[i]
+            val old = best[key]
+            if (old == null || old.score < total) best[key] = Result(lm.casedForm(key), total, sqrt(-f[0]))
         }
         return best.values.sortedByDescending { it.score }.take(limit)
     }
 
-    /**
-     * (mean distance, log-likelihood of the shape). The shape term treats the path as
-     * ~[EFFECTIVE_POINTS] independent observations, and adds a separate term for the start
-     * and end points, which people hit much more precisely than the middle of a swipe.
-     */
-    private fun match(ideal: List<FloatArray>, user: List<FloatArray>): Pair<Double, Double> {
-        var sum = 0.0; var sumSq = 0.0
-        for (i in 0 until N) {
-            val d = hypot((ideal[i][0] - user[i][0]).toDouble(), (ideal[i][1] - user[i][1]).toDouble())
-            sum += d; sumSq += d * d
+    private fun forEachCandidate(layout: KeyboardLayout, path: List<TouchPoint>, prev: String?, block: (String, DoubleArray) -> Unit) {
+        if (path.size < 2) return
+        val ux = layout.unitW; val uy = layout.unitH
+        val raw = path.map { floatArrayOf(it.x / ux, it.y / uy) }
+        val pts = resample(raw, N)
+        val user = UserPath(pts, normalize(pts), polyLength(raw))
+        val centers = HashMap<Int, FloatArray>()
+        for (k in layout.letterKeys) centers[Alphabet.index(k.char)] = floatArrayOf(k.cx / ux, k.cy / uy)
+        fun nearKeys(pt: FloatArray): List<Int> = centers.entries
+            .map { (s, c) -> s to hypot(c[0] - pt[0], c[1] - pt[1]) }
+            .filter { it.second < END_RADIUS }.sortedBy { it.second }.take(END_KEYS).map { it.first }
+        val starts = nearKeys(pts[0]); val ends = nearKeys(pts[N - 1])
+        val seen = HashSet<String>()
+        val w = weights.w
+        // Pass 1 (cheap, O(N) per word): length, start/end and word likelihood.
+        class Pre(val key: String, val template: List<FloatArray>, val tLen: Double, val lp: Double, val cheap: Double)
+        val pre = ArrayList<Pre>()
+        fun consider(word: String) {
+            val key = word.lowercase()
+            if (!seen.add(key)) return
+            val template = templateOf(key, centers) ?: return
+            val tLen = polyLength(template)
+            val ratio = (user.length + 0.3) / (tLen + 0.3)
+            if (ratio < 0.35 || ratio > 2.5) return
+            val lp = lm.wordLogProb(key, prev) ?: return
+            val first = template[0]; val last = template[template.size - 1]
+            val ds = hypot((first[0] - pts[0][0]).toDouble(), (first[1] - pts[0][1]).toDouble())
+            val de = hypot((last[0] - pts[N - 1][0]).toDouble(), (last[1] - pts[N - 1][1]).toDouble())
+            val lr = lengthMismatch(user.length, tLen)
+            pre += Pre(key, template, tLen, lp, -w[6] * lr * lr - w[7] * (ds * ds + de * de) + w[8] * lp)
         }
-        val ds = hypot((ideal[0][0] - user[0][0]).toDouble(), (ideal[0][1] - user[0][1]).toDouble())
-        val de = hypot((ideal[N - 1][0] - user[N - 1][0]).toDouble(), (ideal[N - 1][1] - user[N - 1][1]).toDouble())
-        val shape = -(EFFECTIVE_POINTS * sumSq / N) / (2 * SIGMA * SIGMA) - (ds * ds + de * de) / (2 * END_SIGMA * END_SIGMA)
-        return sum / N to shape
+        for (pack in lm.packs) {
+            val lex = pack.lexicon
+            val idx = indexFor(lex)
+            for (s in starts) for (e in ends) for (id in idx[s * 26 + e]) consider(lex.cased(id))
+        }
+        for (uw in lm.user.activeWords()) {
+            val w = uw.word
+            if (w.length < 2 || lm.inLexicon(w.lowercase())) continue
+            if (Alphabet.index(w[0]) !in starts || Alphabet.index(w[w.length - 1]) !in ends) continue
+            consider(w)
+        }
+        // Pass 2: full comparison for the shortlist only.
+        pre.sortByDescending { it.cheap }
+        for (c in pre.subList(0, minOf(SHORTLIST, pre.size))) {
+            val f = features(user, c.template, c.tLen, c.lp) ?: continue
+            block(c.key, f)
+        }
+    }
+
+    /** Key-centre polyline for a word (double letters collapse; apostrophes are skipped). */
+    private fun templateOf(word: String, centers: Map<Int, FloatArray>): List<FloatArray>? {
+        val pts = ArrayList<FloatArray>(word.length)
+        var last = -1
+        for (c in word) {
+            val s = Alphabet.index(c)
+            if (s == Alphabet.APOS) continue
+            if (s !in 0..25) return null
+            if (s == last) continue
+            pts += centers[s] ?: return null
+            last = s
+        }
+        return pts.ifEmpty { null }
+    }
+
+    /**
+     * Channel values for one candidate (all ≤ 0 except the language term):
+     * 0 location (symmetric closest-distance)², 1 in-order point distance², 2 shape²,
+     * 3/4/5 letter coverage beyond 0.3 / 0.42 / 0.55 key, 6 length mismatch², 7 start+end², 8 log P(word | prev).
+     */
+    private fun features(user: UserPath, template: List<FloatArray>, tLen: Double, lp: Double): DoubleArray? {
+        val t = if (template.size == 1) List(N) { template[0] } else resample(template, N)
+        var a = 0.0; var b = 0.0; var prop = 0.0
+        for (i in 0 until N) {
+            a += minDist(user.pts[i], t); b += minDist(t[i], user.pts)
+            val dx = (t[i][0] - user.pts[i][0]).toDouble(); val dy = (t[i][1] - user.pts[i][1]).toDouble()
+            prop += dx * dx + dy * dy
+        }
+        val loc = (a + b) / (2 * N)
+        if (loc > MAX_LOCATION) return null
+        prop /= N
+        val c = DoubleArray(3)
+        for (k in template) {
+            val d = minDist(k, user.pts)
+            for ((j, tol) in COVERAGE_TOL.withIndex()) { val e = d - tol; if (e > 0) c[j] += e * e }
+        }
+        val tn = normalize(t)
+        var sh = 0.0
+        for (i in 0 until N) sh += hypot((tn[i][0] - user.norm[i][0]).toDouble(), (tn[i][1] - user.norm[i][1]).toDouble())
+        sh /= N
+        val lr = lengthMismatch(user.length, tLen)
+        val ds = hypot((t[0][0] - user.pts[0][0]).toDouble(), (t[0][1] - user.pts[0][1]).toDouble())
+        val de = hypot((t[N - 1][0] - user.pts[N - 1][0]).toDouble(), (t[N - 1][1] - user.pts[N - 1][1]).toDouble())
+        return doubleArrayOf(-loc * loc, -prop, -sh * sh, -c[0], -c[1], -c[2], -lr * lr, -(ds * ds + de * de), lp)
+    }
+
+    /** Candidates with their channel values (for fitting the weights in tests). */
+    fun candidateFeatures(layout: KeyboardLayout, path: List<TouchPoint>, prev: String?): List<Pair<String, DoubleArray>> {
+        val out = ArrayList<Pair<String, DoubleArray>>()
+        forEachCandidate(layout, path, prev) { key, f -> out += key to f }
+        return out
     }
 
     companion object {
-        const val N = 40
-        const val EFFECTIVE_POINTS = 10.0
-        const val END_SIGMA = 0.35
-        const val PER_BUCKET = 1800
-        const val END_RADIUS = 1.1f
-        const val MAX_MEAN_DIST = 0.9
-        const val SIGMA = 0.30
-        const val LM_WEIGHT = 1.0
+        const val N = 32
+        const val PER_BUCKET = 3000
+        const val END_RADIUS = 1.35
+        const val END_KEYS = 5
+        const val MAX_LOCATION = 1.1
+        val COVERAGE_TOL = doubleArrayOf(0.3, 0.42, 0.55)
+        /** Fitted weights (see GestureFitTest); starting point = the previous decoder's behaviour. */
+        val FITTED = doubleArrayOf(39.488, 2.900, 30.000, 0.000, 0.000, 0.000, 90.000, 7.800, 1.000)
+        /** Candidates that survive the cheap first pass and get the full comparison. */
+        const val SHORTLIST = 300
+
+        /** log length ratio outside the expected band [0.7, 1.15] of the template length. */
+        private fun lengthMismatch(user: Double, template: Double): Double {
+            val r = ln((user + 0.3) / (template + 0.3))
+            return when { r < ln(0.7) -> r - ln(0.7); r > ln(1.15) -> r - ln(1.15); else -> 0.0 }
+        }
+
+        private fun minDist(p: FloatArray, pts: List<FloatArray>): Double {
+            var m = Double.MAX_VALUE
+            for (q in pts) { val d = ((p[0] - q[0]) * (p[0] - q[0]) + (p[1] - q[1]) * (p[1] - q[1])).toDouble(); if (d < m) m = d }
+            return sqrt(m)
+        }
+
+        private fun polyLength(p: List<FloatArray>): Double {
+            var s = 0.0
+            for (i in 1 until p.size) s += hypot((p[i][0] - p[i - 1][0]).toDouble(), (p[i][1] - p[i - 1][1]).toDouble())
+            return s
+        }
+
+        /** Translate to the centroid and scale so the larger bounding-box side is 1. */
+        private fun normalize(p: List<FloatArray>): List<FloatArray> {
+            var cx = 0f; var cy = 0f
+            for (q in p) { cx += q[0]; cy += q[1] }
+            cx /= p.size; cy /= p.size
+            var minX = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+            for (q in p) { minX = min(minX, q[0]); maxX = max(maxX, q[0]); minY = min(minY, q[1]); maxY = max(maxY, q[1]) }
+            val s = max(max(maxX - minX, maxY - minY), 0.5f)
+            return p.map { floatArrayOf((it[0] - cx) / s, (it[1] - cy) / s) }
+        }
 
         /** Resamples a polyline to [n] points equally spaced along its length. */
         fun resample(pts: List<FloatArray>, n: Int): List<FloatArray> {
             if (pts.size == 1) return List(n) { pts[0] }
-            var total = 0.0
-            for (i in 1 until pts.size) total += hypot((pts[i][0] - pts[i - 1][0]).toDouble(), (pts[i][1] - pts[i - 1][1]).toDouble())
+            val total = polyLength(pts)
             if (total == 0.0) return List(n) { pts[0] }
             val step = total / (n - 1)
             val out = ArrayList<FloatArray>(n)
