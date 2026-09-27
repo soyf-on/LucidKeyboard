@@ -289,7 +289,8 @@ private fun PrivacyScreen() {
         Body("• No analytics, no advertising, no crash reporting.")
         Body("• Password, e-mail, URL and number fields are never learned from or corrected, and are never stored.")
         Body("• Apps that ask keyboards not to learn (incognito tabs, some messengers) are honoured.")
-        Body("• What is stored: your personal words, replacements and your touch-offset statistics — never the text you type. Stored in app-private storage and excluded from backups.")
+        Body("• What is stored: your personal words and replacements, counts of word pairs you use (e.g. “see you”) so suggestions follow your phrasing, and touch-offset statistics. Messages themselves are not stored. Everything is in app-private storage and excluded from backups.")
+        Body("• Word-pair counts are cleared by Dictionary ▸ Forget learned words, and are not collected in private mode, sensitive fields, or when “Learn new words” is off.")
         Body("• Export, import or delete it any time in Dictionary.")
     }
 }

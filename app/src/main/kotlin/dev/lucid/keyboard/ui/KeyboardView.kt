@@ -50,6 +50,14 @@ open class KeyboardView(context: Context, private val renderer: GlassRenderer) :
     }
 
     var listener: Listener? = null
+    /** Called when the view's width changes, so the owner can rebuild the layout for the real width
+     *  (the IME window can be narrower than the display, e.g. inset by a cutout in landscape). */
+    var onWidthChanged: ((Int) -> Unit)? = null
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w > 0 && w != oldw) onWidthChanged?.invoke(w)
+    }
     var layout: KeyboardLayout? = null
         set(v) { field = v; cancelAll(); regionMap = null; invalidate() }
 

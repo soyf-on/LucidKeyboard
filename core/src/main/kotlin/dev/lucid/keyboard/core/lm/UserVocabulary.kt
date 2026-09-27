@@ -156,7 +156,8 @@ class UserVocabulary(data: UserVocabularyData = UserVocabularyData()) {
      */
     fun observeKept(word: String, knownToLexicon: Boolean, overrodeCorrection: Boolean, now: Long = System.currentTimeMillis()) {
         val key = word.lowercase()
-        if (key.isEmpty() || key in blocked) return
+        // Single characters and strings without letters are never learned implicitly.
+        if (key.length < 2 || key.none { it.isLetter() } || key in blocked) return
         val old = words[key]
         if (old == null && knownToLexicon) return // dictionary words need no personal entry
         val bump = if (overrodeCorrection) INFERRED_ACTIVE_COUNT else 1

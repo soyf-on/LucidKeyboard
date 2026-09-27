@@ -119,6 +119,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
         val column = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         val s = SuggestionStrip(ctx, renderer).also { it.listener = this }
         val kv = KeyboardView(ctx, renderer).also { it.listener = this }
+        kv.onWidthChanged = { w -> if (mode != Mode.EMOJI && !quickOpen) kv.layout = buildLayout(w.toFloat()) }
         val c = FrameLayout(ctx)
         val ov = PopupOverlay(ctx, renderer)
         kv.overlay = ov
@@ -145,9 +146,8 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
 
     private fun keyboardHeight() = Layouts.totalHeight(layoutParams(resources.displayMetrics.widthPixels.toFloat())).toInt()
 
-    private fun buildLayout(): KeyboardLayout {
-        val w = resources.displayMetrics.widthPixels.toFloat()
-        val p = layoutParams(w)
+    private fun buildLayout(width: Float = keyboard?.width?.takeIf { it > 0 }?.toFloat() ?: resources.displayMetrics.widthPixels.toFloat()): KeyboardLayout {
+        val p = layoutParams(width)
         return when (mode) {
             Mode.SYMBOLS -> Layouts.symbols(p, 0)
             Mode.SYMBOLS2 -> Layouts.symbols(p, 1)
@@ -463,7 +463,7 @@ class LucidInputMethodService : InputMethodService(), KeyboardView.Listener, Sug
     override fun closePanel() { quickOpen = false; strip?.quickPanelOpen = false; showMode(if (mode == Mode.EMOJI) Mode.LETTERS else mode) }
 
     override fun openSettings(page: String) {
-        startActivity(Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("page", page))
+        startActivity(Intent(this, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("page", page))
         requestHideSelf(0)
     }
 

@@ -30,6 +30,12 @@ class PopupOverlay(context: Context, private val renderer: GlassRenderer) : View
 
     init { isClickable = false; isFocusable = false }
 
+    /** Never make the keyboard taller: take the height the siblings define (FrameLayout re-measures us exactly). */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val h = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) MeasureSpec.getSize(heightMeasureSpec) else 0
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), h)
+    }
+
     private fun keyRectInOverlay(v: View, k: Key): RectF {
         v.getLocationInWindow(loc); getLocationInWindow(myLoc)
         val dx = (loc[0] - myLoc[0]).toFloat(); val dy = (loc[1] - myLoc[1]).toFloat()

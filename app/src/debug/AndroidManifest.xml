@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug builds only: text fields of every type for testing the keyboard. -->
+        <activity android:name=".debug.FieldTestActivity" android:exported="true" android:windowSoftInputMode="adjustResize" android:label="Lucid field test" />
+    </application>
+</manifest>

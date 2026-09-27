@@ -275,7 +275,12 @@ class InputLogicTest {
         assertTrue(v.allWords().isEmpty())
     }
 
-    @Test fun `touch point equality used by tests`() {
-        assertEquals(TouchPoint(1f, 2f), TouchPoint(1f, 2f))
+    @Test fun `single letters and digit-only strings are never learned implicitly`() {
+        val user = UserVocabulary()
+        val e = engine(user, TypingSettings(correction = CorrectionMode.OFF))
+        e.typeCentered("g g g ok ")
+        e.logic.onText("3"); e.logic.onSeparator(" "); e.logic.onText("3"); e.logic.onSeparator(" ")
+        e.logic.finishInput()
+        assertNull(user.entry("g")); assertNull(user.entry("3"))
     }
 }
