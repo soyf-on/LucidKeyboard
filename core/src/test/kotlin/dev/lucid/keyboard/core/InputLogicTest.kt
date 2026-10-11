@@ -329,6 +329,22 @@ class InputLogicTest {
         assertEquals("hello.world", url.editor.text)
     }
 
+    @Test fun `address bars correct search words but not URLs`() {
+        fun bar() = Fixtures.engine().also {
+            it.logic.settings = TypingSettings(correction = CorrectionMode.BALANCED)
+            it.logic.startInput(FieldInfo(urlAware = true, learningAllowed = false, autoCapAllowed = false))
+        }
+        val search = bar()
+        search.typeCentered("weather amsterdm tomorow ")
+        assertEquals("weather Amsterdam tomorrow ", search.editor.text)
+        val url = bar()
+        url.typeCentered("githb"); url.logic.onText("."); url.typeCentered("com")
+        assertEquals("githb.com", url.editor.text)
+        val www = bar()
+        www.typeCentered("www"); www.logic.onText("."); www.typeCentered("teh"); www.logic.onText("/"); www.typeCentered("teh ")
+        assertEquals("www.teh/teh ", www.editor.text)
+    }
+
     @Test fun `bar punctuation attaches to the previous word`() {
         val e = engine()
         e.typeCentered("hello ")

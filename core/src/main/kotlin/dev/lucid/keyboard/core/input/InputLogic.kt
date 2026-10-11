@@ -53,6 +53,11 @@ data class FieldInfo(
     /** Use composing text (underlined word). Off for passwords and raw-key fields. */
     val composing: Boolean = true,
     val multiLine: Boolean = false,
+    /**
+     * Address / search bar (URL field): normal words are corrected, but nothing that looks
+     * like part of a URL (see [InputLogic.looksLikeUrl]).
+     */
+    val urlAware: Boolean = false,
 ) {
     companion object {
         val DEFAULT = FieldInfo()
@@ -367,7 +372,9 @@ class InputLogic(
         val literal = composingText
         val sentenceStart = word.first().shift == ShiftSource.AUTO
         // Swiped words were already chosen from the dictionary: never auto-correct them.
-        val mode = if (correct && !gestureWord) correctionMode else CorrectionMode.OFF
+        // In address bars, leave anything URL-like exactly as typed.
+        val urlish = fieldInfo.urlAware && looksLikeUrl(literal, separator)
+        val mode = if (correct && !gestureWord && !urlish) correctionMode else CorrectionMode.OFF
         gestureWord = false
         val res = corrector.correct(wordLayout, word, prevWord, mode, sentenceStart, suggestionsWanted = false)
         val final = dutchIJ(res.autoCorrection ?: literal)
@@ -375,7 +382,7 @@ class InputLogic(
         wordJoinedBy = null
         editor.commit(final + separator)
         lm.observeWord(final)
-        if (joined != null && mode != CorrectionMode.OFF && missedSpace(joined, final, separator)) {
+        if (joined != null && mode != CorrectionMode.OFF && !fieldInfo.urlAware && missedSpace(joined, final, separator)) {
             // "hello.world" -> "hello world": the "." / "," was meant to be the space bar.
             // A capital after "." means a new sentence with a missed space: keep the period.
             val gap = if (joined == "." && final.first().isUpperCase()) ". " else " "
@@ -670,6 +677,19 @@ class InputLogic(
         return lm.isKnown(l) && lm.isKnown(r)
     }
 
+    /**
+     * In an address bar: is the word being finished part of a URL rather than a search?
+     * True when it ends in or follows URL punctuation, or the text already looks like a URL.
+     */
+    private fun looksLikeUrl(word: String, separator: String): Boolean {
+        if (separator.isNotEmpty() && separator[0] in URL_CHARS) return true
+        if (word.any { it in URL_CHARS || it.isDigit() }) return true
+        val before = editor.textBeforeCursor(word.length + 200).orEmpty().dropLast(word.length)
+        if (before.isNotEmpty() && before.last() in URL_CHARS) return true
+        val lower = before.lowercase()
+        return "://" in lower || lower.trimStart().startsWith("www.") || lower.contains(" www.")
+    }
+
     /** Dutch capitalises the IJ digraph together: "Ijs" -> "IJs", "Ijsland" -> "IJsland". */
     private fun dutchIJ(w: String): String {
         if (w.length < 2 || w[0] != 'I' || w[1] != 'j') return w
@@ -681,6 +701,7 @@ class InputLogic(
     companion object {
         const val DOUBLE_SPACE_MS = 700L
         const val PRIME_CHARS = 300
+        private const val URL_CHARS = "./:@?=&#%~_"
         /** Domain endings and file extensions: "google.com", "report.pdf" are never split. */
         val TLDS = setOf("com", "net", "org", "nl", "be", "de", "eu", "uk", "io", "co", "app", "dev", "ai", "me", "tv", "info", "edu", "gov",
             "fr", "es", "it", "us", "ca", "au", "ch", "at", "online", "shop", "site", "html", "htm", "php", "pdf", "doc", "docx", "xls", "xlsx",

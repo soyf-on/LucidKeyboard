@@ -20,6 +20,9 @@ class FieldTestActivity : Activity() {
             col.addView(EditText(this).apply { this.tag = tag; inputType = type; imeOptions = options; hint = tag; setTextColor(Color.BLACK); setSingleLine((type and InputType.TYPE_TEXT_FLAG_MULTI_LINE) == 0) })
         }
         val text = InputType.TYPE_CLASS_TEXT
+        // Exact tags Chrome uses (read from a Xiaomi 17 Pro Max): address bar, and a web chat box (Gemini).
+        field("chromebar", 0x80011, EditorInfo.IME_ACTION_GO)
+        field("webchat", 0xa80a1, EditorInfo.IME_ACTION_NONE)
         field("message", text or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT, EditorInfo.IME_ACTION_SEND)
         field("password", text or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         field("url", text or InputType.TYPE_TEXT_VARIATION_URI, EditorInfo.IME_ACTION_GO)

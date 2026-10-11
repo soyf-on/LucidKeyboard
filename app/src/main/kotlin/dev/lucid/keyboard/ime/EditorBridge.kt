@@ -153,20 +153,27 @@ class EditorBridge(private val service: LucidInputMethodService) : TextEditor {
                 variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
                 variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
             if (password) return FieldInfo.PASSWORD
-            val literal = variation == InputType.TYPE_TEXT_VARIATION_URI ||
-                variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+            // E-mail and filter fields stay literal. URL fields are address/search bars: words are
+            // corrected there, URL-like input is not (FieldInfo.urlAware).
+            val uri = variation == InputType.TYPE_TEXT_VARIATION_URI
+            val literal = variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
                 variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
                 variation == InputType.TYPE_TEXT_VARIATION_FILTER
             val noSuggestions = (flags and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0
+            val autoCorrect = (flags and InputType.TYPE_TEXT_FLAG_AUTO_CORRECT) != 0
             val name = variation == InputType.TYPE_TEXT_VARIATION_PERSON_NAME
+            // "No suggestions" loses when the field also asks for autocorrect (Chrome sets both on
+            // web chat boxes such as Gemini), and in address/search bars, like Gboard.
+            val wantsWords = !literal && (!noSuggestions || autoCorrect || uri)
             return FieldInfo(
                 literal = literal,
-                suggestionsAllowed = !literal && !noSuggestions,
-                correctionAllowed = !literal && !noSuggestions && !name,
-                learningAllowed = !noLearning && !literal,
-                autoCapAllowed = !literal,
-                composing = !noSuggestions || !literal,
+                suggestionsAllowed = wantsWords,
+                correctionAllowed = wantsWords && !name,
+                learningAllowed = !noLearning && !literal && !uri,
+                autoCapAllowed = !literal && !uri,
+                composing = true,
                 multiLine = multiLine,
+                urlAware = uri,
             )
         }
 
