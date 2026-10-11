@@ -25,7 +25,12 @@ interface TextEditor {
     /** Commits [text], replacing the composing region if there is one. */
     fun commit(text: String)
     fun deleteBefore(chars: Int)
-    /** Deletes the selection, or one grapheme before the cursor (like a DEL key). */
+    /**
+     * Deletes the selection, or one grapheme before the cursor (like a DEL key).
+     * Must take effect before the next read: text read right afterwards must already
+     * reflect the deletion (on Android, edit through the InputConnection, not a key event,
+     * which the app applies later — reading stale text corrupted the word being resumed).
+     */
     fun deleteBackward()
     /** Marks the [length] characters before the cursor as the composing region. */
     fun setComposingRegionBefore(length: Int): Boolean

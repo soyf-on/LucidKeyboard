@@ -1,5 +1,6 @@
 package dev.lucid.keyboard.ime
 
+import android.os.Build
 import android.text.InputType
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
@@ -73,11 +74,37 @@ class EditorBridge(private val service: LucidInputMethodService) : TextEditor {
     }
 
     override fun deleteBackward() {
-        val before = if (hasSelection()) 0 else graphemeLengthBeforeCursor()
-        // A DEL key event is what every editor understands (selections, emoji, spans).
-        service.sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
-        selStart = if (hasSelection()) minOf(selStart, selEnd) else (selStart - before).coerceAtLeast(0)
-        selEnd = selStart; expect(selStart)
+        val c = ic ?: return
+        val raw = editorInfo?.let { (it.inputType and InputType.TYPE_MASK_CLASS) == InputType.TYPE_NULL } ?: false
+        if (raw) {
+            // Raw editors (terminals etc.) only understand key events.
+            service.sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+            selStart = if (hasSelection()) minOf(selStart, selEnd) else (selStart - 1).coerceAtLeast(0)
+            selEnd = selStart; expect(selStart)
+            return
+        }
+        // Edit through the InputConnection, not a key event: key events are applied by the
+        // app *later*, so text read right afterwards would still contain the deleted letter.
+        val selected = c.getSelectedText(0)
+        if (!selected.isNullOrEmpty()) {
+            c.commitText("", 1)
+            selStart = minOf(selStart, selEnd); selEnd = selStart; expect(selStart)
+            return
+        }
+        val n = graphemeLengthBeforeCursor()
+        if (n <= 0) return
+        c.deleteSurroundingText(n, 0)
+        selStart = (selStart - n).coerceAtLeast(0); selEnd = selStart; expect(selStart)
+    }
+
+    /** The real cursor position, asked from the app (Android 12+), else our own tracking. */
+    private fun cursorPosition(): Int {
+        val c = ic ?: return selStart
+        if (Build.VERSION.SDK_INT >= 31) {
+            val st = runCatching { c.getSurroundingText(0, 0, 0) }.getOrNull()
+            if (st != null && st.selectionStart >= 0 && st.offset >= 0) return st.offset + st.selectionStart
+        }
+        return selStart
     }
 
     private fun graphemeLengthBeforeCursor(): Int {
@@ -91,9 +118,15 @@ class EditorBridge(private val service: LucidInputMethodService) : TextEditor {
 
     override fun setComposingRegionBefore(length: Int): Boolean {
         val c = ic ?: return false
-        if (selStart < length) return false
-        val ok = c.setComposingRegion(selStart - length, selStart)
-        if (ok) { composingStart = selStart - length; composingLen = length }
+        val cursor = cursorPosition()
+        if (cursor < length || length <= 0) return false
+        // Only mark a whole word: the text right before the cursor must be letters, preceded by a non-letter.
+        val check = c.getTextBeforeCursor(length + 1, 0)?.toString() ?: return false
+        val word = check.takeLast(length)
+        if (word.length != length || word.any { !(it.isLetter() || it == '\'') }) return false
+        if (check.length > length && check[0].isLetterOrDigit()) return false
+        val ok = c.setComposingRegion(cursor - length, cursor)
+        if (ok) { selStart = cursor; selEnd = cursor; composingStart = cursor - length; composingLen = length }
         return ok
     }
 
